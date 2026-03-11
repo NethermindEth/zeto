@@ -91,7 +91,7 @@ contract Zeto_AnonEncNullifierNonRepudiation is Zeto_AnonEncNullifier {
         uint256[] memory outputs,
         bytes memory proof,
         bytes memory data
-    ) internal override {
+    ) internal virtual override {
         (_DecodedProof_NonRepudiation memory dp, ) = decodeProof_NonRepudiation(
             proof
         );
@@ -131,7 +131,7 @@ contract Zeto_AnonEncNullifierNonRepudiation is Zeto_AnonEncNullifier {
         uint256[] memory outputs,
         bytes memory proof,
         bool inputsLocked
-    ) internal override returns (uint256[] memory, Commonlib.Proof memory) {
+    ) internal virtual override returns (uint256[] memory, Commonlib.Proof memory) {
         (
             _DecodedProof_NonRepudiation memory dp,
             Commonlib.Proof memory proofStruct

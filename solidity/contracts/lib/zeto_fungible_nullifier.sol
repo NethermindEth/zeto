@@ -43,7 +43,7 @@ abstract contract ZetoFungibleNullifier is ZetoFungible {
         uint256[] memory nullifiers,
         uint256 output,
         bytes memory proof
-    ) internal override returns (uint256[] memory, Commonlib.Proof memory) {
+    ) internal virtual override returns (uint256[] memory, Commonlib.Proof memory) {
         // Decode the proof to extract root and proof structure
         (uint256 root, Commonlib.Proof memory proofStruct) = abi.decode(
             proof,
