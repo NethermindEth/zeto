@@ -20,6 +20,24 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     Registry,
     ComplianceRootRegistry
 {
+    error EnforcerAlreadySet();
+    error EnforcerNotSet();
+
+    event ArbiterUpdated(uint256[2] newKey, uint256 keyId);
+    event EnforcerSet(uint256[2] newKey);
+
+    // the arbiter public key and rotation counter;
+    // shadows the parent's private arbiter variable so that
+    // this contract owns the canonical copy for P8.3+ reads
+    uint256[2] private _arbiterPub;
+    uint256 private _arbiterKeyId;
+    // the enforcer public key (set-once for this release)
+    uint256[2] private _enforcerPub;
+    bool private _enforcerSet;
+    // enforcement nullifier spend tracking (local to this contract;
+    // owner nullifiers are in the external NullifierStorage via _storage)
+    mapping(uint256 => bool) private _enforcementNullifierSpent;
+
     function initialize(
         string calldata name,
         string calldata symbol,
@@ -50,6 +68,43 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         );
     }
 
+    function setArbiter(
+        uint256[2] memory newKey
+    ) public override onlyOwner {
+        super.setArbiter(newKey);
+        _arbiterPub = newKey;
+        _arbiterKeyId++;
+        emit ArbiterUpdated(newKey, _arbiterKeyId);
+    }
+
+    function getArbiter()
+        public
+        view
+        override
+        returns (uint256[2] memory)
+    {
+        return _arbiterPub;
+    }
+
+    function getArbiterKeyId() public view returns (uint256) {
+        return _arbiterKeyId;
+    }
+
+    function setEnforcer(uint256[2] memory newKey) public onlyOwner {
+        if (_enforcerSet) revert EnforcerAlreadySet();
+        _enforcerPub = newKey;
+        _enforcerSet = true;
+        emit EnforcerSet(newKey);
+    }
+
+    function getEnforcer() public view returns (uint256[2] memory) {
+        return _enforcerPub;
+    }
+
+    function _requireEnforcerSet() internal view {
+        if (!_enforcerSet) revert EnforcerNotSet();
+    }
+
     function constructPublicInputs(
         uint256[] memory nullifiers,
         uint256[] memory outputs,
@@ -61,6 +116,7 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         override
         returns (uint256[] memory, Commonlib.Proof memory)
     {
+        _requireEnforcerSet();
         return
             super.constructPublicInputs(
                 nullifiers,
@@ -80,6 +136,7 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         override
         returns (uint256[] memory, Commonlib.Proof memory)
     {
+        _requireEnforcerSet();
         return super.constructPublicInputsForDeposit(amount, outputs, proof);
     }
 
@@ -94,6 +151,7 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         override
         returns (uint256[] memory, Commonlib.Proof memory)
     {
+        _requireEnforcerSet();
         return
             super.constructPublicInputsForWithdraw(
                 amount,
