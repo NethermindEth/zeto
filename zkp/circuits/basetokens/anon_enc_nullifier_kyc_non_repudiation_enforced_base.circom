@@ -58,7 +58,9 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
   // the output for the list of encrypted output UTXOs cipher texts
   signal output encryptedValuesForReceiver[nOutputs][4];
 
-  // the number of cipher text messages returned by the encryption template will be 3n+1
+  // Poseidon sponge encryption absorbs plaintext in 3-element blocks, so the
+  // plaintext is zero-padded to n = ceil(length/3) blocks. Each block emits 3
+  // ciphertext elements, plus one final authentication tag → output = 3n + 1.
   // input length:
   //   - input owner public key (x, y): 2
   //   - secrets (value and salt) for each input UTXOs: 2 * nInputs
@@ -72,9 +74,10 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
   signal output encryptedValuesForArbiter[l + 1];
   signal output encryptedValuesForEnforcer[l + 1];
 
-  // derive the sender's public key from the secret input
-  // for the sender's private key. This step demonstrates
-  // the sender really owns the private key for the input UTXOs
+  // Derive sender's public key from private key (key ownership proof).
+  // Single inputOwnerPrivateKey for all inputs → single-sender model.
+  // The derived key serves dual purpose: (1) commitment preimage owner in
+  // CheckHashes, and (2) ECDH key for enforcement nullifier derivation.
   var inputOwnerPubKeyAx, inputOwnerPubKeyAy;
   (inputOwnerPubKeyAx, inputOwnerPubKeyAy) = BabyPbk()(in <== inputOwnerPrivateKey);
 
@@ -97,6 +100,9 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
   CheckHashes(nInputs)(commitmentHashes <== inputCommitments, commitmentInputs <== inAuxInputs);
   CheckHashes(nOutputs)(commitmentHashes <== outputCommitments, commitmentInputs <== outAuxInputs);
 
+  // Owner nullifier = Poseidon(3)([value, salt, ownerPrivKey]).
+  // Shares (values, salts, privKey) with CheckHashes above, so nullifiers
+  // are transitively bound to the same input commitments.
   CheckNullifiers(nInputs)(nullifiers <== ownerNullifiers, values <== inputValues, salts <== inputSalts, ownerPrivateKey <== inputOwnerPrivateKey);
 
   CheckSum(nInputs, nOutputs)(inputValues <== inputValues, outputValues <== outputValues);
@@ -135,9 +141,12 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
   // Uses the same gated ownerPublicKeys array; ComplianceStatus skips zero keys.
   ComplianceStatus(nOutputs + 1, nComplianceSMTLevels, 1)(publicKeys <== ownerPublicKeys, root <== complianceRoot, merkleProof <== complianceMerkleProof);
 
-  // Check enforcement nullifiers. In the transfer path:
+  // Check enforcement nullifiers. Uses the same inputCommitments passed to
+  // CheckHashes and CheckSMTProof — this three-way binding ensures enforcement
+  // nullifiers correspond to real, SMT-included UTXOs with verified preimages.
+  // In the transfer path:
   //   ecdhKey = inputOwnerPrivateKey, counterpartyPublicKey = enforcerPublicKey
-  // DH symmetry ensures: ECDH(ownerPriv, enfPub) == ECDH(enfPriv, ownerPub)
+  // DH symmetry: ECDH(ownerPriv, enfPub) == ECDH(enfPriv, ownerPub)
   CheckEnforcementNullifiers(nInputs)(enforcementNullifiers <== enforcementNullifiers, inputCommitments <== inputCommitments, counterpartyPublicKey <== enforcerPublicKey, ecdhKey <== inputOwnerPrivateKey);
 
   // Generate cipher text for output UTXOs (per-receiver encryption)
@@ -168,12 +177,15 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
     idx++;
   }
 
-  // Encrypt all secrets for the arbiter (non-repudiation)
+  // Encrypt all secrets for the arbiter (non-repudiation).
+  // The <== constraint on signal output ensures ciphertext is correctly computed
+  // in-circuit — the prover cannot supply arbitrary ciphertext calldata.
   var sharedSecretArbiter[2];
   sharedSecretArbiter = Ecdh()(privKey <== ecdhPrivateKey, pubKey <== arbiterPublicKey);
   encryptedValuesForArbiter <== SymmetricEncrypt(authorityPlaintextLength)(plainText <== plainText, key <== sharedSecretArbiter, nonce <== encryptionNonce);
 
-  // Encrypt all secrets for the enforcer (seizure capability)
+  // Encrypt all secrets for the enforcer (seizure capability).
+  // Same plaintext as arbiter — both authorities get full transaction metadata.
   var sharedSecretEnforcer[2];
   sharedSecretEnforcer = Ecdh()(privKey <== ecdhPrivateKey, pubKey <== enforcerPublicKey);
   encryptedValuesForEnforcer <== SymmetricEncrypt(authorityPlaintextLength)(plainText <== plainText, key <== sharedSecretEnforcer, nonce <== encryptionNonce);
