@@ -20,6 +20,19 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     Registry,
     ComplianceRootRegistry
 {
+    error EnforcerAlreadySet();
+    error EnforcerNotSet();
+    error EnforcementNullifierAlreadySpent(uint256 nullifier);
+
+    event ArbiterUpdated(uint256[2] newKey, uint256 keyId);
+    event EnforcerSet(uint256[2] newKey);
+
+    uint256[2] private _arbiterPub;
+    uint256 private _arbiterKeyId;
+    uint256[2] private _enforcerPub;
+    bool private _enforcerSet;
+    mapping(uint256 => bool) private _enforcementNullifierSpent;
+
     function initialize(
         string calldata name,
         string calldata symbol,
@@ -43,6 +56,35 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         __Registry_init();
         __ComplianceRootRegistry_init();
         __ZetoAnonNullifier_init(name_, symbol_, initialOwner, verifiers);
+    }
+
+    function setArbiter(uint256[2] memory newKey) public onlyOwner {
+        _arbiterPub = newKey;
+        _arbiterKeyId++;
+        emit ArbiterUpdated(newKey, _arbiterKeyId);
+    }
+
+    function getArbiter() public view returns (uint256[2] memory) {
+        return _arbiterPub;
+    }
+
+    function getArbiterKeyId() public view returns (uint256) {
+        return _arbiterKeyId;
+    }
+
+    function setEnforcer(uint256[2] memory newKey) public onlyOwner {
+        if (_enforcerSet) revert EnforcerAlreadySet();
+        _enforcerPub = newKey;
+        _enforcerSet = true;
+        emit EnforcerSet(newKey);
+    }
+
+    function getEnforcer() public view returns (uint256[2] memory) {
+        return _enforcerPub;
+    }
+
+    function _requireEnforcerSet() internal view {
+        if (!_enforcerSet) revert EnforcerNotSet();
     }
 
     function constructPublicInputs(
@@ -111,3 +153,4 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     ) public onlyOwner {
         // TODO
     }
+}
