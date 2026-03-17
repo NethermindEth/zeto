@@ -47,7 +47,9 @@ template DepositEnforced(nOutputs, nIdentitiesSMTLevels, nComplianceSMTLevels) {
   //    out1OwnerX, out1OwnerY, out2OwnerX, out2OwnerY,
   //    out1Value, out1Salt, out2Value, out2Salt]
   // For deposit: input fields are zeroed; senderPubX/Y = depositor's public key (ecdhPublicKey)
-  var nVirtualInputs = 2;  // matches the 2-in layout of the stable authority plaintext schema
+  // nVirtualInputs = 2: zeroed input slots match the 2-in transfer layout so that
+  // arbiter/enforcer use a single decryption schema across all operation types.
+  var nVirtualInputs = 2;
   var authorityPlaintextLength = 2 + 2 * nVirtualInputs + 2 * nOutputs + 2 * nOutputs;
   var l = authorityPlaintextLength;
   if (l % 3 != 0) {
@@ -68,7 +70,9 @@ template DepositEnforced(nOutputs, nIdentitiesSMTLevels, nComplianceSMTLevels) {
 
   CheckHashes(nOutputs)(commitmentHashes <== outputCommitments, commitmentInputs <== outAuxInputs);
 
-  // calculate the sum of output values and set to the output
+  // Sum of output values → signal output `out` (becomes publicInputs[0]).
+  // The contract binds this to the ERC-20 transfer amount, ensuring the
+  // depositor locks exactly the value committed in the output UTXOs.
   var sumOutputs = 0;
   for (var i = 0; i < nOutputs; i++) {
     sumOutputs = sumOutputs + outputValues[i];
@@ -131,12 +135,15 @@ template DepositEnforced(nOutputs, nIdentitiesSMTLevels, nComplianceSMTLevels) {
     idx++;
   }
 
-  // Encrypt all secrets for the arbiter (non-repudiation)
+  // Encrypt all secrets for the arbiter (non-repudiation).
+  // The <== constraint on signal output ensures ciphertext is correctly computed
+  // in-circuit — the prover cannot supply arbitrary ciphertext calldata.
   var sharedSecretArbiter[2];
   sharedSecretArbiter = Ecdh()(privKey <== ecdhPrivateKey, pubKey <== arbiterPublicKey);
   encryptedValuesForArbiter <== SymmetricEncrypt(authorityPlaintextLength)(plainText <== plainText, key <== sharedSecretArbiter, nonce <== encryptionNonce);
 
-  // Encrypt all secrets for the enforcer (seizure capability)
+  // Encrypt all secrets for the enforcer (seizure capability).
+  // Enforcer needs output preimages to build forced-transfer proofs later.
   var sharedSecretEnforcer[2];
   sharedSecretEnforcer = Ecdh()(privKey <== ecdhPrivateKey, pubKey <== enforcerPublicKey);
   encryptedValuesForEnforcer <== SymmetricEncrypt(authorityPlaintextLength)(plainText <== plainText, key <== sharedSecretEnforcer, nonce <== encryptionNonce);
