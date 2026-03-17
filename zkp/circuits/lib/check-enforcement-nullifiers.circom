@@ -33,6 +33,9 @@ template CheckEnforcementNullifiers(nInputs) {
     var isNullifierZero;
     isNullifierZero = IsZero()(in <== enforcementNullifiers[i]);
 
+    // Gating: when disabled (nullifier == 0), the RHS becomes 0, so IsEqual
+    // compares 0 == 0 → passes. When enabled, compares public nullifier
+    // against the in-circuit derivation → must match exactly.
     var isHashEqual;
     isHashEqual = IsEqual()(in <== [
       enforcementNullifiers[i],

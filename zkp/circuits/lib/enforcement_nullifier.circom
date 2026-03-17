@@ -14,6 +14,11 @@ include "./ecdh.circom";
 // DH symmetry: ECDH(ownerKey, enforcerPub) == ECDH(enforcerKey, ownerPub),
 // so both the owner (during normal spend) and the enforcer (during seizure)
 // independently derive the same nullifier without coordination.
+//
+// Domain separation from owner nullifiers (Poseidon(3)([value, salt, privKey])):
+// ENF_DOMAIN_TAG in the third slot is a fixed constant that cannot equal any
+// valid BabyJub private key, preventing cross-type preimage collision.
+// On-chain, the two nullifier types are stored in physically separate mappings.
 template EnforcementNullifier() {
     signal input inputCommitment;
     signal input counterpartyPublicKey[2];
