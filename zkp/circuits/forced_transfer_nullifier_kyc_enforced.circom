@@ -37,6 +37,11 @@ include "./node_modules/circomlib/circuits/smt/smtverifier.circom";
 //
 // Privacy: inputCommitments and seizedOwnerPublicKey are private witnesses — the
 // on-chain transaction cannot be linked to specific UTXO history or identity.
+//
+// Binding: seizedOwnerPublicKey enters three constraint paths — CheckHashes
+// (commitment preimage), ComplianceStatus (FROZEN assertion), and
+// CheckEnforcementNullifiers (ECDH counterparty). A prover cannot misrepresent
+// the seized identity without invalidating at least one of these.
 template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplianceSMTLevels) {
   signal input enforcementNullifiers[nInputs];
   signal input outputCommitments[nOutputs];
@@ -87,8 +92,9 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
   signal output encryptedValuesForArbiter[l + 1];
   signal output encryptedValuesForEnforcer[l + 1];
 
-  // prove the prover holds the enforcer's private key by deriving
-  // the public key and constraining it against the public input
+  // Access-control gate: prove the prover holds the enforcer's private key.
+  // BabyPbk derives the public key; the equality constraint binds it to the
+  // contract-injected public input. Without enforcerPrivateKey, no valid proof.
   var enforcerDerivedPubX, enforcerDerivedPubY;
   (enforcerDerivedPubX, enforcerDerivedPubY) = BabyPbk()(in <== enforcerPrivateKey);
   enforcerDerivedPubX === enforcerPublicKey[0];
@@ -97,9 +103,11 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
   CheckPositive(nOutputs)(outputValues <== outputValues);
 
   // Input commitment preimage integrity.
-  // Using seizedOwnerPublicKey for ALL inputs implicitly enforces the single-frozen-owner
+  // Using seizedOwnerPublicKey for ALL inputs enforces the single-frozen-owner
   // constraint: if any input belonged to a different owner, the hash would not match
   // the actual commitment and CheckHashes would fail.
+  // This also binds seizedOwnerPublicKey to the input notes — the prover cannot
+  // lie about the seized identity without invalidating the commitment preimages.
   CommitmentInputs() inAuxInputs[nInputs];
   for (var i = 0; i < nInputs; i++) {
     inAuxInputs[i].value <== inputValues[i];
@@ -176,6 +184,8 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
     var outputOwnerPubKeyHash;
     outputOwnerPubKeyHash = Poseidon(2)(inputs <== [kycPublicKeys[j + 1][0], kycPublicKeys[j + 1][1]]);
 
+    // isChangeBack == 1: output goes back to the same frozen owner (change)
+    // isChangeBack == 0: output goes to a different (new) recipient
     var isChangeBack;
     isChangeBack = IsEqual()(in <== [outputOwnerPubKeyHash, seizedOwnerPubKeyHash]);
 
@@ -185,6 +195,8 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
     var frozenLeafValue;
     frozenLeafValue = Poseidon(3)(inputs <== [kycPublicKeys[j + 1][0], kycPublicKeys[j + 1][1], 2]);
 
+    // R1CS-safe mux: selects FROZEN leaf value for change-back, ACTIVE for new recipients.
+    // SMTVerifier below will reject if no matching leaf exists at this value in the tree.
     muxLeafDiff[j] <== frozenLeafValue - activeLeafValue;
     expectedComplianceLeafValue[j] <== activeLeafValue + isChangeBack * muxLeafDiff[j];
 
@@ -211,9 +223,11 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
     );
   }
 
-  // Check enforcement nullifiers. In the forced transfer path:
+  // Check enforcement nullifiers. Uses the same inputCommitments passed to
+  // CheckHashes and CheckSMTProof — binding nullifiers to verified, SMT-included UTXOs.
+  // In forced transfer, the DH direction is inverted vs. transfer/withdraw:
   //   ecdhKey = enforcerPrivateKey, counterpartyPublicKey = seizedOwnerPublicKey
-  // DH symmetry ensures: ECDH(enfPriv, ownerPub) == ECDH(ownerPriv, enfPub)
+  // Same shared secret by DH symmetry: ECDH(enfPriv, ownerPub) == ECDH(ownerPriv, enfPub)
   CheckEnforcementNullifiers(nInputs)(enforcementNullifiers <== enforcementNullifiers, inputCommitments <== inputCommitments, counterpartyPublicKey <== seizedOwnerPublicKey, ecdhKey <== enforcerPrivateKey);
 
   // Generate cipher text for output UTXOs (per-receiver encryption)
@@ -246,12 +260,15 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
     idx++;
   }
 
-  // Encrypt all secrets for the arbiter (non-repudiation)
+  // Encrypt all secrets for the arbiter (non-repudiation).
+  // The <== constraint on signal output ensures ciphertext is correctly computed
+  // in-circuit — the prover cannot supply arbitrary ciphertext calldata.
+  // senderPub = seizedOwnerPublicKey records the frozen owner in the audit trail.
   var sharedSecretArbiter[2];
   sharedSecretArbiter = Ecdh()(privKey <== ecdhPrivateKey, pubKey <== arbiterPublicKey);
   encryptedValuesForArbiter <== SymmetricEncrypt(authorityPlaintextLength)(plainText <== plainText, key <== sharedSecretArbiter, nonce <== encryptionNonce);
 
-  // Encrypt all secrets for the enforcer (seizure capability)
+  // Encrypt all secrets for the enforcer (record-keeping for future seizure).
   var sharedSecretEnforcer[2];
   sharedSecretEnforcer = Ecdh()(privKey <== ecdhPrivateKey, pubKey <== enforcerPublicKey);
   encryptedValuesForEnforcer <== SymmetricEncrypt(authorityPlaintextLength)(plainText <== plainText, key <== sharedSecretEnforcer, nonce <== encryptionNonce);
@@ -264,3 +281,4 @@ component main { public [ enforcementNullifiers, outputCommitments,
                           utxosRoot, identitiesRoot, complianceRoot, enabledInputs,
                           enforcerPublicKey, encryptionNonce, arbiterPublicKey ] }
   = ForcedTransferEnforced(2, 2, 64, 10, 64);
+  
