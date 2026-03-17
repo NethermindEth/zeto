@@ -26,6 +26,31 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
 
     event ArbiterUpdated(uint256[2] newKey, uint256 keyId);
     event EnforcerSet(uint256[2] newKey);
+    event UTXOTransferNonRepudiationEnforced(
+        uint256[] inputs,
+        uint256[] outputs,
+        uint256[] enforcementNullifiers,
+        uint256 encryptionNonce,
+        uint256[2] ecdhPublicKey,
+        uint256[] encryptedValuesForReceiver,
+        uint256[] encryptedValuesForArbiter,
+        uint256[] encryptedValuesForEnforcer,
+        uint256 arbiterKeyId,
+        address indexed submitter,
+        bytes data
+    );
+
+    struct _DecodedProof_Transfer {
+        uint256 root;
+        uint256[] enforcementNullifiers;
+        uint256 encryptionNonce;
+        uint256[2] ecdhPublicKey;
+        uint256[] encryptedValuesForReceiver;
+        uint256[] encryptedValuesForArbiter;
+        uint256[] encryptedValuesForEnforcer;
+    }
+
+    uint256[] private _pendingEnfNullifiers;
 
     uint256[2] private _arbiterPub;
     uint256 private _arbiterKeyId;
@@ -87,21 +112,44 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         if (!_enforcerSet) revert EnforcerNotSet();
     }
 
+    // Transfer circuit public signal ordering (58 elements, 0-indexed):
+    //   [0-1]    ecdhPublicKey[2]
+    //   [2-9]    encryptedValuesForReceiver[8]
+    //   [10-25]  encryptedValuesForArbiter[16]
+    //   [26-41]  encryptedValuesForEnforcer[16]
+    //   [42-43]  ownerNullifiers[2]
+    //   [44-45]  enforcementNullifiers[2]
+    //   [46]     utxosRoot
+    //   [47-48]  enabledInputs[2]
+    //   [49]     identitiesRoot
+    //   [50]     complianceRoot
+    //   [51-52]  outputCommitments[2]
+    //   [53]     encryptionNonce
+    //   [54-55]  arbiterPublicKey[2]
+    //   [56-57]  enforcerPublicKey[2]
     function constructPublicInputs(
-        uint256[] memory,
-        uint256[] memory,
-        bytes memory,
+        uint256[] memory nullifiers,
+        uint256[] memory outputs,
+        bytes memory proof,
         bool
     )
         internal
         virtual
         override
-        returns (
-            uint256[] memory publicInputs,
-            Commonlib.Proof memory proof
-        )
+        returns (uint256[] memory, Commonlib.Proof memory)
     {
-        // TODO
+        _requireEnforcerSet();
+        (
+            _DecodedProof_Transfer memory dp,
+            Commonlib.Proof memory proofStruct
+        ) = _decodeProof_Transfer(proof);
+        _pendingEnfNullifiers = dp.enforcementNullifiers;
+        _checkEnforcementNullifiersUnspent(dp.enforcementNullifiers);
+
+        uint256[] memory pi = new uint256[](58);
+        uint256 idx = _fillCiphertexts(pi, dp);
+        _fillSignals(pi, idx, nullifiers, outputs, dp);
+        return (pi, proofStruct);
     }
 
     function constructPublicInputsForDeposit(
@@ -137,13 +185,38 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         // TODO
     }
 
-    function emitTransferEvent(
-        uint256[] memory,
-        uint256[] memory,
-        bytes memory,
-        bytes memory
+    function processInputsAndOutputs(
+        uint256[] memory inputs,
+        uint256[] memory outputs,
+        bool inputsLocked
     ) internal virtual override {
-        // TODO
+        super.processInputsAndOutputs(inputs, outputs, inputsLocked);
+        for (uint256 i = 0; i < _pendingEnfNullifiers.length; ++i) {
+            if (_pendingEnfNullifiers[i] != 0)
+                _enforcementNullifierSpent[_pendingEnfNullifiers[i]] = true;
+        }
+    }
+
+    function emitTransferEvent(
+        uint256[] memory nullifiers,
+        uint256[] memory outputs,
+        bytes memory proof,
+        bytes memory data
+    ) internal virtual override {
+        (_DecodedProof_Transfer memory dp, ) = _decodeProof_Transfer(proof);
+        emit UTXOTransferNonRepudiationEnforced(
+            nullifiers,
+            outputs,
+            dp.enforcementNullifiers,
+            dp.encryptionNonce,
+            dp.ecdhPublicKey,
+            dp.encryptedValuesForReceiver,
+            dp.encryptedValuesForArbiter,
+            dp.encryptedValuesForEnforcer,
+            _arbiterKeyId,
+            msg.sender,
+            data
+        );
     }
 
     function forcedTransfer(
@@ -152,5 +225,88 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         bytes calldata
     ) public onlyOwner {
         // TODO
+    }
+
+    function _decodeProof_Transfer(
+        bytes memory proof
+    )
+        private
+        pure
+        returns (
+            _DecodedProof_Transfer memory dp,
+            Commonlib.Proof memory proofStruct
+        )
+    {
+        (
+            dp.root,
+            dp.enforcementNullifiers,
+            dp.encryptionNonce,
+            dp.ecdhPublicKey,
+            dp.encryptedValuesForReceiver,
+            dp.encryptedValuesForArbiter,
+            dp.encryptedValuesForEnforcer,
+            proofStruct
+        ) = abi.decode(
+            proof,
+            (
+                uint256,
+                uint256[],
+                uint256,
+                uint256[2],
+                uint256[],
+                uint256[],
+                uint256[],
+                Commonlib.Proof
+            )
+        );
+    }
+
+    function _fillCiphertexts(
+        uint256[] memory pi,
+        _DecodedProof_Transfer memory dp
+    ) private pure returns (uint256 idx) {
+        pi[0] = dp.ecdhPublicKey[0];
+        pi[1] = dp.ecdhPublicKey[1];
+        idx = 2;
+        uint256[] memory arr = dp.encryptedValuesForReceiver;
+        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+        arr = dp.encryptedValuesForArbiter;
+        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+        arr = dp.encryptedValuesForEnforcer;
+        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+    }
+
+    function _fillSignals(
+        uint256[] memory pi,
+        uint256 idx,
+        uint256[] memory nullifiers,
+        uint256[] memory outputs,
+        _DecodedProof_Transfer memory dp
+    ) private view {
+        for (uint256 i = 0; i < nullifiers.length; ++i)
+            pi[idx++] = nullifiers[i];
+        uint256[] memory enfN = dp.enforcementNullifiers;
+        for (uint256 i = 0; i < enfN.length; ++i) pi[idx++] = enfN[i];
+        pi[idx++] = dp.root;
+        for (uint256 i = 0; i < nullifiers.length; ++i)
+            pi[idx++] = (nullifiers[i] == 0) ? 0 : 1;
+        pi[idx++] = getIdentitiesRoot();
+        pi[idx++] = getComplianceRoot();
+        for (uint256 i = 0; i < outputs.length; ++i) pi[idx++] = outputs[i];
+        pi[idx++] = dp.encryptionNonce;
+        pi[idx++] = _arbiterPub[0];
+        pi[idx++] = _arbiterPub[1];
+        pi[idx++] = _enforcerPub[0];
+        pi[idx++] = _enforcerPub[1];
+    }
+
+    function _checkEnforcementNullifiersUnspent(
+        uint256[] memory enfNullifiers
+    ) internal view {
+        for (uint256 i = 0; i < enfNullifiers.length; ++i) {
+            if (enfNullifiers[i] == 0) continue;
+            if (_enforcementNullifierSpent[enfNullifiers[i]])
+                revert EnforcementNullifierAlreadySpent(enfNullifiers[i]);
+        }
     }
 }
