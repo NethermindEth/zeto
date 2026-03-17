@@ -50,6 +50,14 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         uint256[] encryptedValuesForEnforcer;
     }
 
+    struct _DecodedProof_Deposit {
+        uint256 encryptionNonce;
+        uint256[2] ecdhPublicKey;
+        uint256[] encryptedValuesForReceiver;
+        uint256[] encryptedValuesForArbiter;
+        uint256[] encryptedValuesForEnforcer;
+    }
+
     uint256[] private _pendingEnfNullifiers;
 
     uint256[2] private _arbiterPub;
@@ -152,20 +160,54 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         return (pi, proofStruct);
     }
 
+    // Deposit circuit public signal ordering (52 elements, 0-indexed):
+    //   [0]      amount (circuit output "out" = sum of output values)
+    //   [1-2]    ecdhPublicKey[2]
+    //   [3-10]   encryptedValuesForReceiver[8]
+    //   [11-26]  encryptedValuesForArbiter[16]
+    //   [27-42]  encryptedValuesForEnforcer[16]
+    //   [43-44]  outputCommitments[2]
+    //   [45]     identitiesRoot
+    //   [46]     complianceRoot
+    //   [47]     encryptionNonce
+    //   [48-49]  arbiterPublicKey[2]
+    //   [50-51]  enforcerPublicKey[2]
     function constructPublicInputsForDeposit(
-        uint256,
-        uint256[] memory,
-        bytes memory
+        uint256 amount,
+        uint256[] memory outputs,
+        bytes memory proof
     )
         public
         virtual
         override
-        returns (
-            uint256[] memory publicInputs,
-            Commonlib.Proof memory proof
-        )
+        returns (uint256[] memory, Commonlib.Proof memory)
     {
-        // TODO
+        _requireEnforcerSet();
+        (
+            _DecodedProof_Deposit memory dp,
+            Commonlib.Proof memory proofStruct
+        ) = _decodeProof_Deposit(proof);
+
+        uint256[] memory pi = new uint256[](52);
+        pi[0] = amount;
+        pi[1] = dp.ecdhPublicKey[0];
+        pi[2] = dp.ecdhPublicKey[1];
+        uint256 idx = 3;
+        uint256[] memory arr = dp.encryptedValuesForReceiver;
+        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+        arr = dp.encryptedValuesForArbiter;
+        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+        arr = dp.encryptedValuesForEnforcer;
+        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+        for (uint256 i = 0; i < outputs.length; ++i) pi[idx++] = outputs[i];
+        pi[idx++] = getIdentitiesRoot();
+        pi[idx++] = getComplianceRoot();
+        pi[idx++] = dp.encryptionNonce;
+        pi[idx++] = _arbiterPub[0];
+        pi[idx++] = _arbiterPub[1];
+        pi[idx++] = _enforcerPub[0];
+        pi[idx++] = _enforcerPub[1];
+        return (pi, proofStruct);
     }
 
     function constructPublicInputsForWithdraw(
@@ -251,6 +293,36 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
             (
                 uint256,
                 uint256[],
+                uint256,
+                uint256[2],
+                uint256[],
+                uint256[],
+                uint256[],
+                Commonlib.Proof
+            )
+        );
+    }
+
+    function _decodeProof_Deposit(
+        bytes memory proof
+    )
+        private
+        pure
+        returns (
+            _DecodedProof_Deposit memory dp,
+            Commonlib.Proof memory proofStruct
+        )
+    {
+        (
+            dp.encryptionNonce,
+            dp.ecdhPublicKey,
+            dp.encryptedValuesForReceiver,
+            dp.encryptedValuesForArbiter,
+            dp.encryptedValuesForEnforcer,
+            proofStruct
+        ) = abi.decode(
+            proof,
+            (
                 uint256,
                 uint256[2],
                 uint256[],
