@@ -84,6 +84,25 @@ contract ZetoTokenFactoryUpgradeable is
         $.implementations[name] = implementation;
     }
 
+
+    /// @dev For AENKNR-E and future enforced variants that require a
+    ///   forcedTransferVerifier. Validates the extra verifier then delegates
+    ///   to the standard fungible deploy path.
+    function deployZetoEnforcedFungibleToken(
+        string memory name,
+        string memory symbol,
+        string memory tokenImplementation,
+        address initialOwner
+    ) public returns (address) {
+        ZetoTokenFactoryStorage storage $ = _getZetoTokenFactoryStorage();
+        ImplementationInfo memory args = $.implementations[tokenImplementation];
+        require(
+            address(args.verifiers.forcedTransferVerifier) != address(0),
+            "Factory: forcedTransferVerifier address is required"
+        );
+        return deployZetoFungibleToken(name, symbol, tokenImplementation, initialOwner);
+    }
+
     function deployZetoFungibleToken(
         string memory name,
         string memory symbol,

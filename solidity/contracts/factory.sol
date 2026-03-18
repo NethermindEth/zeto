@@ -94,6 +94,23 @@ contract ZetoTokenFactory is Ownable {
         return instance;
     }
 
+    /// @dev For AENKNR-E and future enforced variants that require a
+    ///   forcedTransferVerifier. Validates the extra verifier then delegates
+    ///   to the standard fungible deploy path.
+    function deployZetoEnforcedFungibleToken(
+        string calldata name,
+        string calldata symbol,
+        string calldata tokenImplementation,
+        address initialOwner
+    ) public returns (address) {
+        ImplementationInfo memory args = implementations[tokenImplementation];
+        require(
+            address(args.verifiers.forcedTransferVerifier) != address(0),
+            "Factory: forcedTransferVerifier address is required"
+        );
+        return deployZetoFungibleToken(name, symbol, tokenImplementation, initialOwner);
+    }
+
     function deployZetoNonFungibleToken(
         string calldata name,
         string calldata symbol,
