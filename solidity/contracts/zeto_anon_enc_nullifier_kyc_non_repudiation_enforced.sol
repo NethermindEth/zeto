@@ -4,6 +4,7 @@ import {Commonlib} from "./lib/common/common.sol";
 import {IGroth16Verifier} from "./lib/interfaces/izeto_verifier.sol";
 import {IZetoInitializable} from "./lib/interfaces/izeto_initializable.sol";
 import {Zeto_AnonNullifier} from "./zeto_anon_nullifier.sol";
+import {IZetoNullifierStorageView} from "./lib/interfaces/izeto_nullifier_storage_view.sol";
 import {Registry} from "./lib/registry.sol";
 import {ComplianceRootRegistry} from "./lib/compliance_root_registry.sol";
 
@@ -331,6 +332,27 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
             msg.sender,
             data
         );
+    }
+
+    function ownerNullifierSpent(uint256 n) external view returns (bool) {
+        return
+            IZetoNullifierStorageView(address(_storage)).nullifierSpent(n);
+    }
+
+    function enforcementNullifierSpent(
+        uint256 n
+    ) external view returns (bool) {
+        return _enforcementNullifierSpent[n];
+    }
+
+    function isSpent(
+        uint256 ownerN,
+        uint256 enfN
+    ) external view returns (bool) {
+        return
+            IZetoNullifierStorageView(address(_storage)).nullifierSpent(
+                ownerN
+            ) || _enforcementNullifierSpent[enfN];
     }
 
     // Forced transfer circuit public signal ordering (56 elements, 0-indexed):
