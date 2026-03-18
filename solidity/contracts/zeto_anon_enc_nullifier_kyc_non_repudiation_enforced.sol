@@ -3,19 +3,29 @@ pragma solidity ^0.8.27;
 import {Commonlib} from "./lib/common/common.sol";
 import {IGroth16Verifier} from "./lib/interfaces/izeto_verifier.sol";
 import {IZetoInitializable} from "./lib/interfaces/izeto_initializable.sol";
-import {Zeto_AnonNullifier} from "./zeto_anon_nullifier.sol";
 import {IZetoNullifierStorageView} from "./lib/interfaces/izeto_nullifier_storage_view.sol";
+import {Zeto_AnonNullifier} from "./zeto_anon_nullifier.sol";
 import {Registry} from "./lib/registry.sol";
 import {ComplianceRootRegistry} from "./lib/compliance_root_registry.sol";
 
-/// @title A Zeto based fungible token with anonymity, encryption, nullifiers,
-///   KYC, compliance enforcement, non-repudiation, and enforcer-initiated seizure
-/// @dev Extends the base nullifier variant with:
-///        - KYC registry membership enforcement via identities SMT
-///        - Compliance status enforcement (ACTIVE/FROZEN) via compliance SMT
-///        - Dual-authority non-repudiation (arbiter + enforcer ciphertexts)
-///        - Enforcement nullifiers for enforcer-initiated forced transfers
-///        - forcedTransfer path for seizure of frozen user UTXOs
+/// @title Zeto AENKNR-E: anonymous encrypted nullifier token with KYC,
+///   non-repudiation, compliance enforcement, and enforcer-initiated seizure
+/// @dev Four proof paths, each backed by a distinct Groth16 circuit:
+///   - transfer: owner spends UTXOs, both owner + enforcement nullifiers marked
+///   - deposit:  mint UTXOs from ERC-20, no nullifiers
+///   - withdraw: burn UTXOs to ERC-20, both owner + enforcement nullifiers marked
+///   - forcedTransfer: enforcer seizes frozen-owner UTXOs, only enforcement nullifiers marked
+///
+///   Extends Zeto_AnonNullifier directly (not Zeto_AnonEncNullifierNonRepudiation)
+///   because every function the intermediate parents provide is either private,
+///   fully overridden here, or redundant. Each circuit has a different proof ABI
+///   and signal ordering, making the parent's hook-based extension model
+///   (extraInputs) incompatible. See AENKNR-E_ARCHITECTURAL_REVIEW.md.
+///
+///   Each proof path has its own struct + decoder because each circuit encodes
+///   different fields in its proof bytes. Structs keep decoded data in a single
+///   memory pointer (1 stack slot) instead of N locals — required to stay within
+///   the Yul IR stack depth limit.
 contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     Zeto_AnonNullifier,
     Registry,
@@ -40,44 +50,8 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         address indexed submitter,
         bytes data
     );
-
-    struct _DecodedProof_Transfer {
-        uint256 root;
-        uint256[] enforcementNullifiers;
-        uint256 encryptionNonce;
-        uint256[2] ecdhPublicKey;
-        uint256[] encryptedValuesForReceiver;
-        uint256[] encryptedValuesForArbiter;
-        uint256[] encryptedValuesForEnforcer;
-    }
-
-    struct _DecodedProof_Deposit {
-        uint256 encryptionNonce;
-        uint256[2] ecdhPublicKey;
-        uint256[] encryptedValuesForReceiver;
-        uint256[] encryptedValuesForArbiter;
-        uint256[] encryptedValuesForEnforcer;
-    }
-
-    struct _DecodedProof_Withdraw {
-        uint256 root;
-        uint256[] enforcementNullifiers;
-        uint256 encryptionNonce;
-        uint256[2] ecdhPublicKey;
-        uint256[] encryptedValuesForEnforcer;
-    }
-
-    struct _DecodedProof_ForcedTransfer {
-        uint256[] enforcementNullifiers;
-        uint256 root;
-        uint256[] enabledInputs;
-        uint256 encryptionNonce;
-        uint256[2] ecdhPublicKey;
-        uint256[] encryptedValuesForReceiver;
-        uint256[] encryptedValuesForArbiter;
-        uint256[] encryptedValuesForEnforcer;
-    }
-
+    // Uses enforcementNullifiers as "inputs" — input commitments are private
+    // witnesses in the forced transfer circuit and must never be exposed on-chain.
     event UTXOForcedTransferEnforced(
         uint256[] enforcementNullifiers,
         uint256[] outputs,
@@ -91,14 +65,70 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         bytes data
     );
 
+    struct _DecodedProof_Transfer {
+        uint256 root;
+        uint256[] enforcementNullifiers;
+        uint256 encryptionNonce;
+        uint256[2] ecdhPublicKey;
+        uint256[] encryptedValuesForReceiver;
+        uint256[] encryptedValuesForArbiter;
+        uint256[] encryptedValuesForEnforcer;
+    }
+
+    // No root or nullifiers — deposit mints new UTXOs without spending existing ones.
+    struct _DecodedProof_Deposit {
+        uint256 encryptionNonce;
+        uint256[2] ecdhPublicKey;
+        uint256[] encryptedValuesForReceiver;
+        uint256[] encryptedValuesForArbiter;
+        uint256[] encryptedValuesForEnforcer;
+    }
+
+    // No arbiter/receiver ciphertexts — the withdrawal amount and ERC-20 destination
+    // are already public on-chain. Only the change output preimage is encrypted to
+    // the enforcer so they can seize it if needed.
+    struct _DecodedProof_Withdraw {
+        uint256 root;
+        uint256[] enforcementNullifiers;
+        uint256 encryptionNonce;
+        uint256[2] ecdhPublicKey;
+        uint256[] encryptedValuesForEnforcer;
+    }
+
+    // enabledInputs is in the proof (not derived from nullifier padding) because
+    // the forced transfer path has no owner nullifiers to derive them from.
+    struct _DecodedProof_ForcedTransfer {
+        uint256[] enforcementNullifiers;
+        uint256 root;
+        uint256[] enabledInputs;
+        uint256 encryptionNonce;
+        uint256[2] ecdhPublicKey;
+        uint256[] encryptedValuesForReceiver;
+        uint256[] encryptedValuesForArbiter;
+        uint256[] encryptedValuesForEnforcer;
+    }
+
+    // Bridges enforcement nullifiers from constructPublicInputs (where they're
+    // decoded) to processInputsAndOutputs (where they're marked spent). Needed
+    // because the ZetoFungible.transfer() flow calls these as separate hooks
+    // with no shared parameter for proof bytes.
     uint256[] private _pendingEnfNullifiers;
 
     IGroth16Verifier private _forcedTransferVerifier;
+    // Rotatable key — arbiterKeyId increments on each rotation so off-chain
+    // indexers can associate ciphertexts with the correct decryption key.
     uint256[2] private _arbiterPub;
     uint256 private _arbiterKeyId;
+    // Set-once — rotating the enforcer key would orphan all existing enforcement
+    // nullifiers (they're derived via ECDH with the enforcer key).
     uint256[2] private _enforcerPub;
     bool private _enforcerSet;
+    // Separate from owner nullifiers (tracked in external NullifierStorage).
+    // A UTXO is considered spent if EITHER its owner OR enforcement nullifier
+    // has been marked — see isSpent() for the OR semantics.
     mapping(uint256 => bool) private _enforcementNullifierSpent;
+
+    // Initialization
 
     function initialize(
         string calldata name,
@@ -125,6 +155,8 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         __ZetoAnonNullifier_init(name_, symbol_, initialOwner, verifiers);
         _forcedTransferVerifier = verifiers.forcedTransferVerifier;
     }
+
+    // Admin API
 
     function setArbiter(uint256[2] memory newKey) public onlyOwner {
         _arbiterPub = newKey;
@@ -154,6 +186,13 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     function _requireEnforcerSet() internal view {
         if (!_enforcerSet) revert EnforcerNotSet();
     }
+
+    // Hook overrides
+    //
+    // Called by ZetoFungible.transfer(), deposit(), withdraw().
+    // Each override fully replaces the parent's proof assembly because our circuits
+    // have different ABIs and interleaved signal orderings that are incompatible
+    // with the parent's extraInputs() hook.
 
     // Transfer circuit public signal ordering (58 elements, 0-indexed):
     //   [0-1]    ecdhPublicKey[2]
@@ -190,8 +229,13 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         _checkEnforcementNullifiersUnspent(dp.enforcementNullifiers);
 
         uint256[] memory pi = new uint256[](58);
-        uint256 idx = _fillCiphertexts(pi, dp);
-        _fillSignals(pi, idx, nullifiers, outputs, dp);
+        uint256 idx = _fillCiphertexts(
+            pi, 0, dp.ecdhPublicKey,
+            dp.encryptedValuesForReceiver,
+            dp.encryptedValuesForArbiter,
+            dp.encryptedValuesForEnforcer
+        );
+        _fillTransferSignals(pi, idx, nullifiers, outputs, dp);
         return (pi, proofStruct);
     }
 
@@ -225,15 +269,12 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
 
         uint256[] memory pi = new uint256[](52);
         pi[0] = amount;
-        pi[1] = dp.ecdhPublicKey[0];
-        pi[2] = dp.ecdhPublicKey[1];
-        uint256 idx = 3;
-        uint256[] memory arr = dp.encryptedValuesForReceiver;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-        arr = dp.encryptedValuesForArbiter;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-        arr = dp.encryptedValuesForEnforcer;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+        uint256 idx = _fillCiphertexts(
+            pi, 1, dp.ecdhPublicKey,
+            dp.encryptedValuesForReceiver,
+            dp.encryptedValuesForArbiter,
+            dp.encryptedValuesForEnforcer
+        );
         for (uint256 i = 0; i < outputs.length; ++i) pi[idx++] = outputs[i];
         pi[idx++] = getIdentitiesRoot();
         pi[idx++] = getComplianceRoot();
@@ -281,6 +322,7 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         pi[0] = dp.ecdhPublicKey[0];
         pi[1] = dp.ecdhPublicKey[1];
         uint256 idx = 2;
+        // Withdraw uses only enforcer ciphertext (no _fillCiphertexts — different layout)
         uint256[] memory arr = dp.encryptedValuesForEnforcer;
         for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
         pi[idx++] = amount;
@@ -300,6 +342,8 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         return (pi, proofStruct);
     }
 
+    /// @dev Extends the parent to also mark enforcement nullifiers as spent.
+    ///   Owner nullifiers are marked by super (via external NullifierStorage).
     function processInputsAndOutputs(
         uint256[] memory inputs,
         uint256[] memory outputs,
@@ -312,6 +356,9 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         }
     }
 
+    /// @dev Re-decodes proof bytes from memory rather than reading from storage.
+    ///   The proof parameter is still in memory from the transfer() call, so
+    ///   a second abi.decode is cheaper than round-tripping through SSTORE/SLOAD.
     function emitTransferEvent(
         uint256[] memory nullifiers,
         uint256[] memory outputs,
@@ -334,27 +381,13 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         );
     }
 
-    function ownerNullifierSpent(uint256 n) external view returns (bool) {
-        return
-            IZetoNullifierStorageView(address(_storage)).nullifierSpent(n);
-    }
+    // Public API
 
-    function enforcementNullifierSpent(
-        uint256 n
-    ) external view returns (bool) {
-        return _enforcementNullifierSpent[n];
-    }
-
-    function isSpent(
-        uint256 ownerN,
-        uint256 enfN
-    ) external view returns (bool) {
-        return
-            IZetoNullifierStorageView(address(_storage)).nullifierSpent(
-                ownerN
-            ) || _enforcementNullifierSpent[enfN];
-    }
-
+    /// @dev Standalone seizure path — does NOT go through ZetoFungible.transfer()
+    ///   because that flow requires owner nullifiers (which the enforcer cannot
+    ///   compute without the owner's private key). Instead, this function handles
+    ///   the full lifecycle: validate, verify, spend enforcement nullifiers, mint outputs.
+    //
     // Forced transfer circuit public signal ordering (56 elements, 0-indexed):
     //   [0-1]    ecdhPublicKey[2]
     //   [2-9]    encryptedValuesForReceiver[8]
@@ -384,7 +417,25 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         _checkEnforcementNullifiersUnspent(dp.enforcementNullifiers);
 
         uint256[] memory pi = new uint256[](56);
-        _fillForcedTransferInputs(pi, outputs, dp);
+        uint256 idx = _fillCiphertexts(
+            pi, 0, dp.ecdhPublicKey,
+            dp.encryptedValuesForReceiver,
+            dp.encryptedValuesForArbiter,
+            dp.encryptedValuesForEnforcer
+        );
+        uint256[] memory arr = dp.enforcementNullifiers;
+        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+        for (uint256 i = 0; i < outputs.length; ++i) pi[idx++] = outputs[i];
+        pi[idx++] = dp.root;
+        pi[idx++] = getIdentitiesRoot();
+        pi[idx++] = getComplianceRoot();
+        arr = dp.enabledInputs;
+        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+        pi[idx++] = _enforcerPub[0];
+        pi[idx++] = _enforcerPub[1];
+        pi[idx++] = dp.encryptionNonce;
+        pi[idx++] = _arbiterPub[0];
+        pi[idx++] = _arbiterPub[1];
 
         require(
             _forcedTransferVerifier.verify(
@@ -396,10 +447,10 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
             "Invalid proof"
         );
 
-        // mark enforcement nullifiers spent (no owner nullifiers in this path)
-        uint256[] memory enfN = dp.enforcementNullifiers;
-        for (uint256 i = 0; i < enfN.length; ++i) {
-            if (enfN[i] != 0) _enforcementNullifierSpent[enfN[i]] = true;
+        // Only enforcement nullifiers — no owner nullifiers in the seizure path
+        arr = dp.enforcementNullifiers;
+        for (uint256 i = 0; i < arr.length; ++i) {
+            if (arr[i] != 0) _enforcementNullifierSpent[arr[i]] = true;
         }
         processOutputs(outputs);
 
@@ -416,6 +467,33 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
             data
         );
     }
+
+    /// @dev Reads from external NullifierStorage (owner nullifiers live there,
+    ///   not in this contract). Public so isSpent() can call it internally.
+    function ownerNullifierSpent(uint256 n) public view returns (bool) {
+        return
+            IZetoNullifierStorageView(address(_storage)).nullifierSpent(n);
+    }
+
+    function enforcementNullifierSpent(
+        uint256 n
+    ) external view returns (bool) {
+        return _enforcementNullifierSpent[n];
+    }
+
+    /// @dev OR semantics: spent if either owner OR enforcement nullifier is marked.
+    ///   Wallets should call this before attempting an owner spend — if the
+    ///   enforcement nullifier is already spent (via forcedTransfer), the UTXO
+    ///   has been seized and an owner-spend proof would pass verification but
+    ///   fail at processInputs (double-spend of the same economic value).
+    function isSpent(
+        uint256 ownerN,
+        uint256 enfN
+    ) external view returns (bool) {
+        return ownerNullifierSpent(ownerN) || _enforcementNullifierSpent[enfN];
+    }
+
+    // Private helpers
 
     function _decodeProof_Transfer(
         bytes memory proof
@@ -511,55 +589,6 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         );
     }
 
-    function _fillCiphertexts(
-        uint256[] memory pi,
-        _DecodedProof_Transfer memory dp
-    ) private pure returns (uint256 idx) {
-        pi[0] = dp.ecdhPublicKey[0];
-        pi[1] = dp.ecdhPublicKey[1];
-        idx = 2;
-        uint256[] memory arr = dp.encryptedValuesForReceiver;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-        arr = dp.encryptedValuesForArbiter;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-        arr = dp.encryptedValuesForEnforcer;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-    }
-
-    function _fillSignals(
-        uint256[] memory pi,
-        uint256 idx,
-        uint256[] memory nullifiers,
-        uint256[] memory outputs,
-        _DecodedProof_Transfer memory dp
-    ) private view {
-        for (uint256 i = 0; i < nullifiers.length; ++i)
-            pi[idx++] = nullifiers[i];
-        uint256[] memory enfN = dp.enforcementNullifiers;
-        for (uint256 i = 0; i < enfN.length; ++i) pi[idx++] = enfN[i];
-        pi[idx++] = dp.root;
-        for (uint256 i = 0; i < nullifiers.length; ++i)
-            pi[idx++] = (nullifiers[i] == 0) ? 0 : 1;
-        pi[idx++] = getIdentitiesRoot();
-        pi[idx++] = getComplianceRoot();
-        for (uint256 i = 0; i < outputs.length; ++i) pi[idx++] = outputs[i];
-        pi[idx++] = dp.encryptionNonce;
-        pi[idx++] = _arbiterPub[0];
-        pi[idx++] = _arbiterPub[1];
-        pi[idx++] = _enforcerPub[0];
-        pi[idx++] = _enforcerPub[1];
-    }
-
-    function _checkEnforcementNullifiersUnspent(
-        uint256[] memory enfNullifiers
-    ) internal view {
-        for (uint256 i = 0; i < enfNullifiers.length; ++i) {
-            if (enfNullifiers[i] == 0) continue;
-            if (_enforcementNullifierSpent[enfNullifiers[i]])
-                revert EnforcementNullifierAlreadySpent(enfNullifiers[i]);
-        }
-    }
-
     function _decodeProof_ForcedTransfer(
         bytes memory proof
     )
@@ -596,32 +625,64 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         );
     }
 
-    function _fillForcedTransferInputs(
+    /// @dev Fills ecdhPublicKey[2] + receiver + arbiter + enforcer ciphertexts
+    ///   into pi starting at startIdx. Shared across transfer (0), deposit (1,
+    ///   after amount), and forced transfer (0). Withdraw has a different
+    ///   ciphertext layout (enforcer-only) and fills inline.
+    function _fillCiphertexts(
         uint256[] memory pi,
+        uint256 startIdx,
+        uint256[2] memory ecdhPub,
+        uint256[] memory encReceiver,
+        uint256[] memory encArbiter,
+        uint256[] memory encEnforcer
+    ) private pure returns (uint256 idx) {
+        pi[startIdx] = ecdhPub[0];
+        pi[startIdx + 1] = ecdhPub[1];
+        idx = startIdx + 2;
+        for (uint256 i = 0; i < encReceiver.length; ++i)
+            pi[idx++] = encReceiver[i];
+        for (uint256 i = 0; i < encArbiter.length; ++i)
+            pi[idx++] = encArbiter[i];
+        for (uint256 i = 0; i < encEnforcer.length; ++i)
+            pi[idx++] = encEnforcer[i];
+    }
+
+    /// @dev Split from constructPublicInputs to stay within the Yul IR stack
+    ///   depth limit. The transfer path's trailing signals include storage reads
+    ///   (roots, authority keys) that push past the limit when combined with the
+    ///   ciphertext fills in a single function body.
+    function _fillTransferSignals(
+        uint256[] memory pi,
+        uint256 idx,
+        uint256[] memory nullifiers,
         uint256[] memory outputs,
-        _DecodedProof_ForcedTransfer memory dp
+        _DecodedProof_Transfer memory dp
     ) private view {
-        pi[0] = dp.ecdhPublicKey[0];
-        pi[1] = dp.ecdhPublicKey[1];
-        uint256 idx = 2;
-        uint256[] memory arr = dp.encryptedValuesForReceiver;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-        arr = dp.encryptedValuesForArbiter;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-        arr = dp.encryptedValuesForEnforcer;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-        arr = dp.enforcementNullifiers;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-        for (uint256 i = 0; i < outputs.length; ++i) pi[idx++] = outputs[i];
+        for (uint256 i = 0; i < nullifiers.length; ++i)
+            pi[idx++] = nullifiers[i];
+        uint256[] memory enfN = dp.enforcementNullifiers;
+        for (uint256 i = 0; i < enfN.length; ++i) pi[idx++] = enfN[i];
         pi[idx++] = dp.root;
+        for (uint256 i = 0; i < nullifiers.length; ++i)
+            pi[idx++] = (nullifiers[i] == 0) ? 0 : 1;
         pi[idx++] = getIdentitiesRoot();
         pi[idx++] = getComplianceRoot();
-        arr = dp.enabledInputs;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
-        pi[idx++] = _enforcerPub[0];
-        pi[idx++] = _enforcerPub[1];
+        for (uint256 i = 0; i < outputs.length; ++i) pi[idx++] = outputs[i];
         pi[idx++] = dp.encryptionNonce;
         pi[idx++] = _arbiterPub[0];
         pi[idx++] = _arbiterPub[1];
+        pi[idx++] = _enforcerPub[0];
+        pi[idx++] = _enforcerPub[1];
+    }
+
+    function _checkEnforcementNullifiersUnspent(
+        uint256[] memory enfNullifiers
+    ) internal view {
+        for (uint256 i = 0; i < enfNullifiers.length; ++i) {
+            if (enfNullifiers[i] == 0) continue;
+            if (_enforcementNullifierSpent[enfNullifiers[i]])
+                revert EnforcementNullifierAlreadySpent(enfNullifiers[i]);
+        }
     }
 }
