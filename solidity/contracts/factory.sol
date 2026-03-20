@@ -94,9 +94,9 @@ contract ZetoTokenFactory is Ownable {
         return instance;
     }
 
-    /// @dev For AENKNR-E and future enforced variants that require a
-    ///   forcedTransferVerifier. Validates the extra verifier then delegates
-    ///   to the standard fungible deploy path.
+    /// @dev For AENKNR-E and future enforced variants. Requires transfer,
+    ///   deposit, withdraw, and forcedTransfer verifiers. Does NOT require
+    ///   batch verifiers (enforced variants are non-batch only).
     function deployZetoEnforcedFungibleToken(
         string calldata name,
         string calldata symbol,
@@ -105,10 +105,32 @@ contract ZetoTokenFactory is Ownable {
     ) public returns (address) {
         ImplementationInfo memory args = implementations[tokenImplementation];
         require(
+            args.implementation != address(0),
+            "Factory: failed to find implementation"
+        );
+        require(
+            address(args.verifiers.depositVerifier) != address(0),
+            "Factory: depositVerifier address is required"
+        );
+        require(
+            address(args.verifiers.withdrawVerifier) != address(0),
+            "Factory: withdrawVerifier address is required"
+        );
+        require(
             address(args.verifiers.forcedTransferVerifier) != address(0),
             "Factory: forcedTransferVerifier address is required"
         );
-        return deployZetoFungibleToken(name, symbol, tokenImplementation, initialOwner);
+        address instance = address(
+            new ERC1967Proxy(
+                args.implementation,
+                abi.encodeCall(
+                    IZetoInitializable.initialize,
+                    (name, symbol, initialOwner, args.verifiers)
+                )
+            )
+        );
+        emit ZetoTokenDeployed(instance);
+        return instance;
     }
 
     function deployZetoNonFungibleToken(
