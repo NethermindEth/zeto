@@ -28,6 +28,7 @@ interface IZetoInitializable {
         IGroth16Verifier batchWithdrawVerifier;
         IGroth16Verifier batchLockVerifier;
         IGroth16Verifier batchBurnVerifier;
+        IGroth16Verifier forcedTransferVerifier;
     }
 
     function initialize(

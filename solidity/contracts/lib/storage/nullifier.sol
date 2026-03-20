@@ -18,6 +18,7 @@ pragma solidity ^0.8.27;
 import {IZetoConstants, MAX_SMT_DEPTH} from "../interfaces/izeto.sol";
 import {IZetoLockable} from "../interfaces/izeto_lockable.sol";
 import {IZetoStorage} from "../interfaces/izeto_storage.sol";
+import {IZetoNullifierStorageView} from "../interfaces/izeto_nullifier_storage_view.sol";
 import {Commonlib} from "../common/common.sol";
 import {Util} from "../common/util.sol";
 import {SmtLib} from "@iden3/contracts/contracts/lib/SmtLib.sol";
@@ -25,7 +26,7 @@ import {IHasher} from "@iden3/contracts/contracts/interfaces/IHasher.sol";
 import {PoseidonHasher} from "@iden3/contracts/contracts/lib/hash/PoseidonHasher.sol";
 import {PoseidonUnit3L} from "@iden3/contracts/contracts/lib/Poseidon.sol";
 
-contract NullifierStorage is IZetoStorage, IZetoConstants, IZetoLockable {
+contract NullifierStorage is IZetoStorage, IZetoConstants, IZetoLockable, IZetoNullifierStorageView {
     // used for tracking regular (unlocked) UTXOs
     SmtLib.Data internal _commitmentsTree;
     // used for locked UTXOs tracking. multi-step transaction flows that require counterparties
@@ -172,6 +173,10 @@ contract NullifierStorage is IZetoStorage, IZetoConstants, IZetoLockable {
     function spent(uint256 utxo) public view returns (UTXOStatus) {
         // by design, the contract does not know this
         return UTXOStatus.UNKNOWN;
+    }
+
+    function nullifierSpent(uint256 n) external view returns (bool) {
+        return _nullifiers[n];
     }
 
     // check the existence of a UTXO in either the unlocked or locked commitments tree
