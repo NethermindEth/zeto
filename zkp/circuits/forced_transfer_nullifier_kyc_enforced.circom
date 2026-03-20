@@ -280,5 +280,5 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
 component main { public [ enforcementNullifiers, outputCommitments,
                           utxosRoot, identitiesRoot, complianceRoot, enabledInputs,
                           enforcerPublicKey, encryptionNonce, arbiterPublicKey ] }
-  = ForcedTransferEnforced(2, 2, 64, 10, 64);
+  = ForcedTransferEnforced(2, 2, 64, 64, 64);
   
