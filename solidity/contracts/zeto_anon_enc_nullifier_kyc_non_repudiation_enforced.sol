@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 import {Commonlib} from "./lib/common/common.sol";
 import {IGroth16Verifier} from "./lib/interfaces/izeto_verifier.sol";
 import {IZetoInitializable} from "./lib/interfaces/izeto_initializable.sol";
+import {IZetoEnforced} from "./lib/interfaces/izeto_enforced.sol";
 import {IZetoNullifierStorageView} from "./lib/interfaces/izeto_nullifier_storage_view.sol";
 import {Zeto_AnonNullifier} from "./zeto_anon_nullifier.sol";
 import {Registry} from "./lib/registry.sol";
@@ -29,42 +30,9 @@ import {ComplianceRootRegistry} from "./lib/compliance_root_registry.sol";
 contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     Zeto_AnonNullifier,
     Registry,
-    ComplianceRootRegistry
+    ComplianceRootRegistry,
+    IZetoEnforced
 {
-    error EnforcerAlreadySet();
-    error EnforcerNotSet();
-    error EnforcementNullifierAlreadySpent(uint256 nullifier);
-
-    event ArbiterUpdated(uint256[2] newKey, uint256 keyId);
-    event EnforcerSet(uint256[2] newKey);
-    event UTXOTransferNonRepudiationEnforced(
-        uint256[] inputs,
-        uint256[] outputs,
-        uint256[] enforcementNullifiers,
-        uint256 encryptionNonce,
-        uint256[2] ecdhPublicKey,
-        uint256[] encryptedValuesForReceiver,
-        uint256[] encryptedValuesForArbiter,
-        uint256[] encryptedValuesForEnforcer,
-        uint256 arbiterKeyId,
-        address indexed submitter,
-        bytes data
-    );
-    // Uses enforcementNullifiers as "inputs" — input commitments are private
-    // witnesses in the forced transfer circuit and must never be exposed on-chain.
-    event UTXOForcedTransferEnforced(
-        uint256[] enforcementNullifiers,
-        uint256[] outputs,
-        uint256 encryptionNonce,
-        uint256[2] ecdhPublicKey,
-        uint256[] encryptedValuesForReceiver,
-        uint256[] encryptedValuesForArbiter,
-        uint256[] encryptedValuesForEnforcer,
-        uint256 arbiterKeyId,
-        address indexed submitter,
-        bytes data
-    );
-
     struct _DecodedProof_Transfer {
         uint256 root;
         uint256[] enforcementNullifiers;
