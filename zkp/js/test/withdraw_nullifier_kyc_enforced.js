@@ -49,6 +49,7 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
   let smtComplianceAllActive, smtComplianceSenderFrozen;
 
   const Alice = {};
+  const Arbiter = {};
   const Enforcer = {};
   let senderPrivateKey;
 
@@ -66,6 +67,10 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
     Alice.privKey = keypair.privKey;
     Alice.pubKey = keypair.pubKey;
     senderPrivateKey = formatPrivKeyForBabyJub(Alice.privKey);
+
+    keypair = genKeypair();
+    Arbiter.privKey = keypair.privKey;
+    Arbiter.pubKey = keypair.pubKey;
 
     keypair = genKeypair();
     Enforcer.privKey = keypair.privKey;
@@ -186,6 +191,7 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
       identitiesRoot,
       complianceRoot,
       enabledInputs: [1, 1],
+      arbiterPublicKey: Arbiter.pubKey,
       enforcerPublicKey: Enforcer.pubKey,
       inputCommitments,
       inputValues,
@@ -231,11 +237,12 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
     };
   }
 
-  it("should succeed for partial withdrawal, verify enforcer decryption and public signal ordering", async function () {
+  it("should succeed for partial withdrawal, verify arbiter/enforcer decryption and public signal ordering", async function () {
     this.timeout(60000);
 
     const {
       circuitInputs,
+      inputValues,
       outputValues,
       amount,
       salts,
@@ -251,58 +258,88 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
 
-    // public signal ordering snapshot for Solidity integration:
+    // public signal ordering snapshot for Solidity integration (50 signals, 0-indexed):
     //   output signals (automatically public, appear first):
     //     [1-2]    ecdhPublicKey[2]
-    //     [3-6]    encryptedValuesForEnforcer[4]
+    //     [3-18]   encryptedValuesForArbiter[16]
+    //     [19-34]  encryptedValuesForEnforcer[16]
     //   public input signals (in { public [] } declaration order):
-    //     [7]      amount
-    //     [8-9]    ownerNullifiers[2]
-    //     [10-11]  enforcementNullifiers[2]
-    //     [12]     outputCommitments[1]
-    //     [13]     utxosRoot
-    //     [14]     identitiesRoot
-    //     [15]     complianceRoot
-    //     [16-17]  enabledInputs[2]
-    //     [18]     encryptionNonce
-    //     [19-20]  enforcerPublicKey[2]
+    //     [35]     amount
+    //     [36-37]  ownerNullifiers[2]
+    //     [38-39]  enforcementNullifiers[2]
+    //     [40]     outputCommitments[1]
+    //     [41]     utxosRoot
+    //     [42]     identitiesRoot
+    //     [43]     complianceRoot
+    //     [44-45]  enabledInputs[2]
+    //     [46]     encryptionNonce
+    //     [47-48]  arbiterPublicKey[2]
+    //     [49-50]  enforcerPublicKey[2]
 
-    expect(witness[7]).to.equal(BigInt(amount));
-    expect(witness[8]).to.equal(BigInt(ownerNullifiers[0]));
-    expect(witness[9]).to.equal(BigInt(ownerNullifiers[1]));
-    expect(witness[10]).to.equal(BigInt(enforcementNullifiers[0]));
-    expect(witness[11]).to.equal(BigInt(enforcementNullifiers[1]));
-    expect(witness[12]).to.equal(BigInt(outputCommitments[0]));
-    expect(witness[13]).to.equal(utxosRoot);
-    expect(witness[14]).to.equal(identitiesRoot);
-    expect(witness[15]).to.equal(complianceRoot);
-    expect(witness[16]).to.equal(1n);
-    expect(witness[17]).to.equal(1n);
-    expect(witness[18]).to.equal(BigInt(encryptionNonce));
-    expect(witness[19]).to.equal(Enforcer.pubKey[0]);
-    expect(witness[20]).to.equal(Enforcer.pubKey[1]);
+    expect(witness[35]).to.equal(BigInt(amount));
+    expect(witness[36]).to.equal(BigInt(ownerNullifiers[0]));
+    expect(witness[37]).to.equal(BigInt(ownerNullifiers[1]));
+    expect(witness[38]).to.equal(BigInt(enforcementNullifiers[0]));
+    expect(witness[39]).to.equal(BigInt(enforcementNullifiers[1]));
+    expect(witness[40]).to.equal(BigInt(outputCommitments[0]));
+    expect(witness[41]).to.equal(utxosRoot);
+    expect(witness[42]).to.equal(identitiesRoot);
+    expect(witness[43]).to.equal(complianceRoot);
+    expect(witness[44]).to.equal(1n);
+    expect(witness[45]).to.equal(1n);
+    expect(witness[46]).to.equal(BigInt(encryptionNonce));
+    expect(witness[47]).to.equal(Arbiter.pubKey[0]);
+    expect(witness[48]).to.equal(Arbiter.pubKey[1]);
+    expect(witness[49]).to.equal(Enforcer.pubKey[0]);
+    expect(witness[50]).to.equal(Enforcer.pubKey[1]);
 
-    // enforcer decrypts the change output preimage: [changeValue, changeSalt]
+    // arbiter decrypts the 14-element authority plaintext
+    const arbiterKey = genEcdhSharedKey(
+      Arbiter.privKey,
+      ephemeralKeypair.pubKey,
+    );
+    const arbiterCipherText = witness.slice(3, 19);
+    const arbiterPlainText = poseidonDecrypt(
+      arbiterCipherText,
+      arbiterKey,
+      encryptionNonce,
+      14,
+    );
+    // [senderPubX, senderPubY, in1Value, in1Salt, in2Value, in2Salt,
+    //  changeOwnerX, changeOwnerY, 0, 0, changeValue, changeSalt, 0, 0]
+    expect(arbiterPlainText[0]).to.equal(Alice.pubKey[0]); // senderPubX
+    expect(arbiterPlainText[1]).to.equal(Alice.pubKey[1]); // senderPubY
+    expect(arbiterPlainText[2]).to.equal(BigInt(inputValues[0])); // in1Value
+    expect(arbiterPlainText[3]).to.equal(salts.salt1); // in1Salt
+    expect(arbiterPlainText[4]).to.equal(BigInt(inputValues[1])); // in2Value
+    expect(arbiterPlainText[5]).to.equal(salts.salt2); // in2Salt
+    expect(arbiterPlainText[6]).to.equal(Alice.pubKey[0]); // changeOwnerX
+    expect(arbiterPlainText[7]).to.equal(Alice.pubKey[1]); // changeOwnerY
+    expect(arbiterPlainText[8]).to.equal(0n); // virtual output owner X
+    expect(arbiterPlainText[9]).to.equal(0n); // virtual output owner Y
+    expect(arbiterPlainText[10]).to.equal(BigInt(outputValues[0])); // changeValue
+    expect(arbiterPlainText[11]).to.equal(salts.salt3); // changeSalt
+    expect(arbiterPlainText[12]).to.equal(0n); // virtual output value
+    expect(arbiterPlainText[13]).to.equal(0n); // virtual output salt
+
+    // enforcer decrypts the same 14-element plaintext via different ECDH key
     const enforcerKey = genEcdhSharedKey(
       Enforcer.privKey,
       ephemeralKeypair.pubKey,
     );
-    const enforcerCipherText = witness.slice(3, 7);
+    const enforcerCipherText = witness.slice(19, 35);
     const enforcerPlainText = poseidonDecrypt(
       enforcerCipherText,
       enforcerKey,
       encryptionNonce,
-      2,
+      14,
     );
-    expect(enforcerPlainText).to.deep.equal([
-      BigInt(outputValues[0]),
-      salts.salt3,
-    ]);
+    expect(enforcerPlainText).to.deep.equal(arbiterPlainText);
 
-    // non-enforcer cannot decrypt the ciphertext
+    // non-authority cannot decrypt the ciphertext
     const wrongKey = genEcdhSharedKey(Alice.privKey, ephemeralKeypair.pubKey);
     expect(function () {
-      poseidonDecrypt(enforcerCipherText, wrongKey, encryptionNonce, 2);
+      poseidonDecrypt(arbiterCipherText, wrongKey, encryptionNonce, 14);
     }).to.throw();
   });
 
@@ -321,21 +358,116 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
 
-    expect(witness[7]).to.equal(BigInt(amount));
-    expect(witness[12]).to.equal(BigInt(outputCommitments[0])); // 0n
+    expect(witness[35]).to.equal(BigInt(amount));
+    expect(witness[40]).to.equal(BigInt(outputCommitments[0])); // 0n
 
-    // enforcer ciphertext encrypts [0, 0] when change is zero
-    const enforcerKey = genEcdhSharedKey(
-      Enforcer.privKey,
+    // arbiter can still see the full plaintext even with zero change
+    const arbiterKey = genEcdhSharedKey(
+      Arbiter.privKey,
       ephemeralKeypair.pubKey,
     );
-    const enforcerPlainText = poseidonDecrypt(
-      witness.slice(3, 7),
-      enforcerKey,
+    const arbiterPlainText = poseidonDecrypt(
+      witness.slice(3, 19),
+      arbiterKey,
       encryptionNonce,
-      2,
+      14,
     );
-    expect(enforcerPlainText).to.deep.equal([0n, 0n]);
+    // Input values are still visible to arbiter (non-repudiation even for full withdrawals)
+    expect(arbiterPlainText[10]).to.equal(0n); // changeValue = 0
+    expect(arbiterPlainText[12]).to.equal(0n); // virtual output value
+    expect(arbiterPlainText[13]).to.equal(0n); // virtual output salt
+  });
+
+  it("should succeed for amount=0 withdrawal (note-washing attempt); arbiter CAN see the change output", async function () {
+    this.timeout(60000);
+
+    // amount=0: all value goes to the change output. This used to be a
+    // note-washing vulnerability when the arbiter had no ciphertext.
+    const inputValues = [10, 20];
+    const outputValues = [30]; // amount = 30 - 30 = 0
+    const amount = 0;
+
+    const salt1 = newSalt();
+    const input1 = poseidonHash([BigInt(inputValues[0]), salt1, ...Alice.pubKey]);
+    const salt2 = newSalt();
+    const input2 = poseidonHash([BigInt(inputValues[1]), salt2, ...Alice.pubKey]);
+
+    const ownerNullifiers = [
+      poseidonHash3([BigInt(inputValues[0]), salt1, senderPrivateKey]),
+      poseidonHash3([BigInt(inputValues[1]), salt2, senderPrivateKey]),
+    ];
+    const enforcementNullifiers = [
+      computeEnforcementNullifier(Alice.privKey, Enforcer.pubKey, input1),
+      computeEnforcementNullifier(Alice.privKey, Enforcer.pubKey, input2),
+    ];
+
+    await smtUtxo.add(input1, input1);
+    await smtUtxo.add(input2, input2);
+    const utxoProof1 = await smtUtxo.generateCircomVerifierProof(input1, ZERO_HASH);
+    const utxoProof2 = await smtUtxo.generateCircomVerifierProof(input2, ZERO_HASH);
+
+    const salt3 = newSalt();
+    const output1 = poseidonHash([BigInt(outputValues[0]), salt3, ...Alice.pubKey]);
+    const encryptionNonce = newEncryptionNonce();
+    const ephemeralKeypair = genKeypair();
+    const kycProofAlice = await smtKYC.generateCircomVerifierProof(poseidonHash2(Alice.pubKey), ZERO_HASH);
+    const compProofAlice = await smtComplianceAllActive.generateCircomVerifierProof(poseidonHash2(Alice.pubKey), ZERO_HASH);
+
+    const circuitInputs = {
+      amount,
+      ownerNullifiers,
+      enforcementNullifiers,
+      outputCommitments: [output1],
+      utxosRoot: utxoProof1.root.bigInt(),
+      identitiesRoot: kycProofAlice.root.bigInt(),
+      complianceRoot: compProofAlice.root.bigInt(),
+      enabledInputs: [1, 1],
+      arbiterPublicKey: Arbiter.pubKey,
+      enforcerPublicKey: Enforcer.pubKey,
+      inputCommitments: [input1, input2],
+      inputValues,
+      inputSalts: [salt1, salt2],
+      inputOwnerPrivateKey: senderPrivateKey,
+      utxosMerkleProof: [
+        utxoProof1.siblings.map((s) => s.bigInt()),
+        utxoProof2.siblings.map((s) => s.bigInt()),
+      ],
+      identitiesMerkleProof: [
+        kycProofAlice.siblings.map((s) => s.bigInt()),
+        kycProofAlice.siblings.map((s) => s.bigInt()),
+      ],
+      complianceMerkleProof: [
+        compProofAlice.siblings.map((s) => s.bigInt()),
+        compProofAlice.siblings.map((s) => s.bigInt()),
+      ],
+      outputValues,
+      outputSalts: [salt3],
+      outputOwnerPublicKeys: [Alice.pubKey],
+      ...stringifyBigInts({
+        encryptionNonce,
+        ecdhPrivateKey: formatPrivKeyForBabyJub(ephemeralKeypair.privKey),
+      }),
+    };
+
+    const witness = await circuit.calculateWitness(circuitInputs, true);
+
+    // amount == 0 is valid (value conservation: 30 == 0 + 30)
+    expect(witness[35]).to.equal(0n);
+
+    // Arbiter CAN see the change output even when amount is zero —
+    // this is the fix for the note-washing vulnerability.
+    const arbiterKey = genEcdhSharedKey(Arbiter.privKey, ephemeralKeypair.pubKey);
+    const arbiterPlainText = poseidonDecrypt(
+      witness.slice(3, 19),
+      arbiterKey,
+      encryptionNonce,
+      14,
+    );
+    expect(arbiterPlainText[0]).to.equal(Alice.pubKey[0]); // sender identity visible
+    expect(arbiterPlainText[2]).to.equal(BigInt(inputValues[0])); // input preimages visible
+    expect(arbiterPlainText[4]).to.equal(BigInt(inputValues[1]));
+    expect(arbiterPlainText[10]).to.equal(BigInt(outputValues[0])); // change output visible
+    expect(arbiterPlainText[11]).to.equal(salt3);
   });
 
   it("should fail because sender has FROZEN compliance status", async function () {

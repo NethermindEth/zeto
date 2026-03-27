@@ -109,11 +109,11 @@ function encodeDepositProof(
 
 function encodeWithdrawProof(
   root: BigNumberish, enfNulls: BigInt[], nonce: BigNumberish,
-  ecdhPub: BigNumberish[], encEnf: BigNumberish[], proof: object,
+  ecdhPub: BigNumberish[], encArb: BigNumberish[], encEnf: BigNumberish[], proof: object,
 ) {
   return new AbiCoder().encode(
-    ["uint256", "uint256[]", "uint256", "uint256[2]", "uint256[]", PROOF_TUPLE],
-    [root, enfNulls, nonce, ecdhPub, encEnf, proof],
+    ["uint256", "uint256[]", "uint256", "uint256[2]", "uint256[]", "uint256[]", PROOF_TUPLE],
+    [root, enfNulls, nonce, ecdhPub, encArb, encEnf, proof],
   );
 }
 
@@ -257,7 +257,7 @@ async function proveDeposit(
 async function proveWithdraw(
   sender: User, inputs: UTXO[], changeOutput: UTXO, amount: number,
   utxoSmt: Merkletree, kycSmt: Merkletree, compSmt: Merkletree,
-  enforcer: User, ephKp: Keypair,
+  arbiter: User, enforcer: User, ephKp: Keypair,
 ): Promise<ProveResult> {
   const inputCommitments = inputs.map((u) => u.hash);
   const ownerNullifiers = inputs.map((u) => newNullifier(u, sender).hash);
@@ -283,6 +283,7 @@ async function proveWithdraw(
       identitiesRoot: kycProofs[0].root,
       complianceRoot: compProofs[0].root,
       enabledInputs: ownerNullifiers.map((n) => (n !== 0n ? 1 : 0)),
+      arbiterPublicKey: arbiter.babyJubPublicKey,
       enforcerPublicKey: enforcer.babyJubPublicKey,
       inputCommitments,
       inputValues: inputs.map((u) => BigInt(u.value || 0)),
@@ -301,11 +302,13 @@ async function proveWithdraw(
   return {
     ownerNullifiers,
     enfNullifiers,
+    outputCommitments: [changeOutput.hash],
     changeCommitment: changeOutput.hash,
     utxosRoot: utxoProofs[0].root,
     encryptionNonce,
     ecdhPublicKey: publicSignals.slice(0, 2),
-    encEnf: publicSignals.slice(2, 6), // only 4 elements (2-element plaintext)
+    encArb: publicSignals.slice(2, 18),  // 16 elements (14-element plaintext)
+    encEnf: publicSignals.slice(18, 34), // 16 elements (14-element plaintext)
     encodedProof,
   };
 }
@@ -608,7 +611,7 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
   // ── withdraw ──
 
   describe("withdraw", function () {
-    it("partial withdrawal; enforcer decrypts change ciphertext; both nullifier types marked", async function () {
+    it("partial withdrawal; arbiter+enforcer decrypt 14-element ciphertext; both nullifier types marked", async function () {
       this.timeout(600000);
       const utxo40 = newUTXO(40, Alice);
       const utxo60 = newUTXO(60, Alice);
@@ -619,21 +622,27 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       const ephKp = genKeypair();
       const wp = await proveWithdraw(
         Alice, [utxo40, utxo60], changeUtxo, 80,
-        smtAlice, smtKyc, smtCompAllActive, Enforcer, ephKp,
+        smtAlice, smtKyc, smtCompAllActive, Arbiter, Enforcer, ephKp,
       );
 
       const result = await (await zeto.connect(Alice.signer).withdraw(
         80, wp.ownerNullifiers!, wp.changeCommitment,
-        encodeWithdrawProof(wp.utxosRoot!, wp.enfNullifiers, wp.encryptionNonce, wp.ecdhPublicKey, wp.encEnf, wp.encodedProof),
+        encodeWithdrawProof(wp.utxosRoot!, wp.enfNullifiers, wp.encryptionNonce, wp.ecdhPublicKey, wp.encArb!, wp.encEnf, wp.encodedProof),
         "0x",
       )).wait();
       expect(result!.status).to.equal(1);
 
-      // Enforcer decrypts change note (2-element plaintext: [changeValue, changeSalt])
-      const enfShared = genEcdhSharedKey(Enforcer.babyJubPrivateKey, ephKp.pubKey);
-      const enfPlain = poseidonDecrypt(toBigInts(wp.encEnf), enfShared, BigInt(wp.encryptionNonce), 2);
-      expect(enfPlain[0]).to.equal(20n);
-      expect(enfPlain[1]).to.equal(changeUtxo.salt);
+      // Arbiter decrypts 14-element authority plaintext from withdraw
+      const arbPlain = decryptAuthority(wp.encArb!, Arbiter.babyJubPrivateKey, ephKp.pubKey, BigInt(wp.encryptionNonce));
+      expect(arbPlain[0]).to.equal(Alice.babyJubPublicKey[0]); // senderPubX
+      expect(arbPlain[10]).to.equal(20n); // changeValue
+      expect(arbPlain[11]).to.equal(changeUtxo.salt); // changeSalt
+      expect(arbPlain[12]).to.equal(0n); // virtual output value
+      expect(arbPlain[13]).to.equal(0n); // virtual output salt
+
+      // Enforcer decrypts identical plaintext via different ECDH key
+      const enfPlain = decryptAuthority(wp.encEnf, Enforcer.babyJubPrivateKey, ephKp.pubKey, BigInt(wp.encryptionNonce));
+      expect(enfPlain).to.deep.equal(arbPlain);
 
       // Both nullifier types marked
       for (const n of wp.ownerNullifiers!) {

@@ -52,14 +52,14 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         uint256[] encryptedValuesForEnforcer;
     }
 
-    // No arbiter/receiver ciphertexts — the withdrawal amount and ERC-20 destination
-    // are already public on-chain. Only the change output preimage is encrypted to
-    // the enforcer so they can seize it if needed.
+    // Unified 14-element authority schema (matches transfer/deposit).
+    // Both arbiter and enforcer get full transaction metadata for withdraw.
     struct _DecodedProof_Withdraw {
         uint256 root;
         uint256[] enforcementNullifiers;
         uint256 encryptionNonce;
         uint256[2] ecdhPublicKey;
+        uint256[] encryptedValuesForArbiter;
         uint256[] encryptedValuesForEnforcer;
     }
 
@@ -254,19 +254,21 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         return (pi, proofStruct);
     }
 
-    // Withdraw circuit public signal ordering (20 elements, 0-indexed):
+    // Withdraw circuit public signal ordering (50 elements, 0-indexed):
     //   [0-1]    ecdhPublicKey[2]
-    //   [2-5]    encryptedValuesForEnforcer[4]
-    //   [6]      amount
-    //   [7-8]    ownerNullifiers[2]
-    //   [9-10]   enforcementNullifiers[2]
-    //   [11]     outputCommitments[1]
-    //   [12]     utxosRoot
-    //   [13]     identitiesRoot
-    //   [14]     complianceRoot
-    //   [15-16]  enabledInputs[2]
-    //   [17]     encryptionNonce
-    //   [18-19]  enforcerPublicKey[2]
+    //   [2-17]   encryptedValuesForArbiter[16]
+    //   [18-33]  encryptedValuesForEnforcer[16]
+    //   [34]     amount
+    //   [35-36]  ownerNullifiers[2]
+    //   [37-38]  enforcementNullifiers[2]
+    //   [39]     outputCommitments[1]
+    //   [40]     utxosRoot
+    //   [41]     identitiesRoot
+    //   [42]     complianceRoot
+    //   [43-44]  enabledInputs[2]
+    //   [45]     encryptionNonce
+    //   [46-47]  arbiterPublicKey[2]
+    //   [48-49]  enforcerPublicKey[2]
     function constructPublicInputsForWithdraw(
         uint256 amount,
         uint256[] memory nullifiers,
@@ -286,17 +288,19 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         _pendingEnfNullifiers = dp.enforcementNullifiers;
         _checkEnforcementNullifiersUnspent(dp.enforcementNullifiers);
 
-        uint256[] memory pi = new uint256[](20);
-        pi[0] = dp.ecdhPublicKey[0];
-        pi[1] = dp.ecdhPublicKey[1];
-        uint256 idx = 2;
-        // Withdraw uses only enforcer ciphertext (no _fillCiphertexts — different layout)
-        uint256[] memory arr = dp.encryptedValuesForEnforcer;
-        for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
+        uint256[] memory pi = new uint256[](50);
+        // Now uses _fillCiphertexts like transfer/deposit (no receiver ciphertext → empty array)
+        uint256[] memory emptyArr = new uint256[](0);
+        uint256 idx = _fillCiphertexts(
+            pi, 0, dp.ecdhPublicKey,
+            emptyArr,
+            dp.encryptedValuesForArbiter,
+            dp.encryptedValuesForEnforcer
+        );
         pi[idx++] = amount;
         for (uint256 i = 0; i < nullifiers.length; ++i)
             pi[idx++] = nullifiers[i];
-        arr = dp.enforcementNullifiers;
+        uint256[] memory arr = dp.enforcementNullifiers;
         for (uint256 i = 0; i < arr.length; ++i) pi[idx++] = arr[i];
         pi[idx++] = output;
         pi[idx++] = dp.root;
@@ -305,6 +309,8 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         for (uint256 i = 0; i < nullifiers.length; ++i)
             pi[idx++] = (nullifiers[i] == 0) ? 0 : 1;
         pi[idx++] = dp.encryptionNonce;
+        pi[idx++] = _arbiterPub[0];
+        pi[idx++] = _arbiterPub[1];
         pi[idx++] = _enforcerPub[0];
         pi[idx++] = _enforcerPub[1];
         return (pi, proofStruct);
@@ -542,6 +548,7 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
             dp.enforcementNullifiers,
             dp.encryptionNonce,
             dp.ecdhPublicKey,
+            dp.encryptedValuesForArbiter,
             dp.encryptedValuesForEnforcer,
             proofStruct
         ) = abi.decode(
@@ -551,6 +558,7 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
                 uint256[],
                 uint256,
                 uint256[2],
+                uint256[],
                 uint256[],
                 Commonlib.Proof
             )
@@ -595,8 +603,8 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
 
     /// @dev Fills ecdhPublicKey[2] + receiver + arbiter + enforcer ciphertexts
     ///   into pi starting at startIdx. Shared across transfer (0), deposit (1,
-    ///   after amount), and forced transfer (0). Withdraw has a different
-    ///   ciphertext layout (enforcer-only) and fills inline.
+    ///   after amount), forced transfer (0), and withdraw (0, with empty
+    ///   receiver array).
     function _fillCiphertexts(
         uint256[] memory pi,
         uint256 startIdx,
