@@ -45,7 +45,24 @@ const ForcedTransferVerifierModule = buildModule(
   },
 );
 
-// Non-batch only — no batch verifier modules for this variant.
+const CodecModule = buildModule("AENKNRECodec", (m) => {
+  const codec = m.contract("AENKNRECodec", []);
+  return { codec };
+});
+
+const TransferFacetModule = buildModule("Zeto_AENKNRETransferFacet", (m) => {
+  const { smtLib, poseidon2, poseidon3 } = m.useModule(SmtLibModule);
+  const transferFacet = m.contract("Zeto_AENKNRETransferFacet", [], {
+    libraries: {
+      SmtLib: smtLib,
+      PoseidonUnit2L: poseidon2,
+      PoseidonUnit3L: poseidon3,
+    },
+  });
+  return { transferFacet };
+});
+
+// Non-batch only
 export default buildModule(
   "Zeto_AnonEncNullifierKycNonRepudiationEnforced",
   (m) => {
@@ -56,11 +73,15 @@ export default buildModule(
     const { verifier: forcedTransferVerifier } = m.useModule(
       ForcedTransferVerifierModule,
     );
+    const { codec } = m.useModule(CodecModule);
+    const { transferFacet } = m.useModule(TransferFacetModule);
     return {
       verifier,
       depositVerifier,
       withdrawVerifier,
       forcedTransferVerifier,
+      codec,
+      transferFacet,
       smtLib,
       poseidon2,
       poseidon3,

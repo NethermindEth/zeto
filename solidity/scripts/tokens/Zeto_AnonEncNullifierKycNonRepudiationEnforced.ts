@@ -9,6 +9,8 @@ export async function deployDependencies() {
     depositVerifier,
     withdrawVerifier,
     forcedTransferVerifier,
+    codec,
+    transferFacet,
     smtLib,
     poseidon2,
     poseidon3,
@@ -33,6 +35,8 @@ export async function deployDependencies() {
         forcedTransferVerifier: forcedTransferVerifier.target,
       },
     ],
+    codec: codec.target,
+    transferFacet: transferFacet.target,
     libraries: {
       SmtLib: smtLib.target,
       PoseidonUnit2L: poseidon2.target,
