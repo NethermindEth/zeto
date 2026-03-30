@@ -1,3 +1,14 @@
+// Prerequisites — generate circuit artifacts before running:
+//
+//   cd zkp/circuits && npm i
+//   export CIRCUITS_ROOT=<path> PROVING_KEYS_ROOT=<path> PTAU_DOWNLOAD_PATH=<path>
+//   npm run gen -- -c anon_enc_nullifier_kyc_non_repudiation_enforced
+//   npm run gen -- -c deposit_kyc_non_repudiation_enforced
+//   npm run gen -- -c withdraw_nullifier_kyc_enforced
+//   npm run gen -- -c forced_transfer_nullifier_kyc_enforced
+//
+// Then run:  CIRCUITS_ROOT=<path> PROVING_KEYS_ROOT=<path> npx hardhat test test/zeto_anon_enc_nullifier_kyc_non_repudiation_enforced.ts
+
 import { ethers } from "hardhat";
 import { Signer, BigNumberish, AbiCoder } from "ethers";
 import { expect } from "chai";
@@ -164,9 +175,11 @@ async function proveTransfer(
   arbiter: User, enforcer: User, ephKp: Keypair,
 ): Promise<ProveResult> {
   const inputCommitments = inputs.map((u) => u.hash);
-  const nullifiers = inputs.map((u) => newNullifier(u, sender));
+  const nullifiers = inputs.map((u) =>
+    u.hash === 0n ? { hash: 0n, value: 0, salt: 0n } as UTXO : newNullifier(u, sender),
+  );
   const enfNullifiers = inputCommitments.map((c) =>
-    computeEnforcementNullifier(sender.babyJubPrivateKey, enforcer.babyJubPublicKey, c),
+    c === 0n ? 0n as BigInt : computeEnforcementNullifier(sender.babyJubPrivateKey, enforcer.babyJubPublicKey, c),
   );
   const encryptionNonce = newEncryptionNonce() as BigNumberish;
 
@@ -404,6 +417,8 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
   let smtKyc: Merkletree;
   let smtCompAllActive: Merkletree;
   let smtCompAliceFrozen: Merkletree;
+  let smtCompBobFrozen: Merkletree;
+  let Stranger: User;
 
   before(async function () {
     this.timeout(600000);
@@ -442,6 +457,15 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     await addComplianceLeaf(smtCompAliceFrozen, Alice.babyJubPublicKey, STATUS_FROZEN);
     await addComplianceLeaf(smtCompAliceFrozen, Bob.babyJubPublicKey, STATUS_ACTIVE);
     await addComplianceLeaf(smtCompAliceFrozen, Charlie.babyJubPublicKey, STATUS_ACTIVE);
+
+    // Compliance: Bob FROZEN, Alice+Charlie ACTIVE
+    smtCompBobFrozen = new Merkletree(new InMemoryDB(str2Bytes("comp-bob-frozen")), true, SMT_HEIGHT);
+    await addComplianceLeaf(smtCompBobFrozen, Alice.babyJubPublicKey, STATUS_ACTIVE);
+    await addComplianceLeaf(smtCompBobFrozen, Bob.babyJubPublicKey, STATUS_FROZEN);
+    await addComplianceLeaf(smtCompBobFrozen, Charlie.babyJubPublicKey, STATUS_ACTIVE);
+
+    // Stranger: not KYC-registered, no compliance leaf
+    Stranger = await newUser((await ethers.getSigners())[8]);
 
     // UTXO SMTs (per-user local mirrors)
     smtAlice = new Merkletree(new InMemoryDB(str2Bytes("alice")), true, SMT_HEIGHT);
@@ -768,6 +792,387 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       expect(await zeto.ownerNullifierSpent(n)).to.be.false;
       expect(await zeto.enforcementNullifierSpent(n)).to.be.false;
       expect(await zeto.isSpent(n, n)).to.be.false;
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Negative & edge-case tests
+  // ═══════════════════════════════════════════════════════════════
+
+  /** Helper: expect a proof generator to throw a circuit constraint error. */
+  async function expectCircuitReject(proofFn: () => Promise<unknown>) {
+    try {
+      await proofFn();
+      expect.fail("should have thrown");
+    } catch (e: any) {
+      expect(e.message).to.contain("Error in template");
+    }
+  }
+
+  /** Mint UTXOs via admin and track them in all local SMTs. */
+  async function mintAndTrack(utxos: UTXO[]) {
+    const hashes: bigint[] = utxos.map((u) => BigInt(u.hash as any));
+    while (hashes.length < 2) hashes.push(0n);
+    await (await zeto.connect(deployer).mint(hashes.slice(0, 2), "0x")).wait();
+    await trackUtxos([smtAlice, smtBob], ...utxos);
+  }
+
+  // ── KYC gating ──
+
+  describe("KYC gating", function () {
+    it("transfer fails at circuit level if sender is not KYC-registered", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(50, Stranger);
+      const u2 = newUTXO(50, Stranger);
+      await mintAndTrack([u1, u2]);
+
+      await expectCircuitReject(() =>
+        proveTransfer(
+          Stranger, [u1, u2], [newUTXO(50, Alice), newUTXO(50, Alice)],
+          [Alice, Alice], smtAlice, smtKyc, smtCompAllActive,
+          Arbiter, Enforcer, genKeypair(),
+        ),
+      );
+    });
+
+    it("transfer fails at circuit level if recipient is not KYC-registered", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(50, Alice);
+      const u2 = newUTXO(50, Alice);
+      await mintAndTrack([u1, u2]);
+
+      await expectCircuitReject(() =>
+        proveTransfer(
+          Alice, [u1, u2], [newUTXO(50, Stranger), newUTXO(50, Alice)],
+          [Stranger, Alice], smtAlice, smtKyc, smtCompAllActive,
+          Arbiter, Enforcer, genKeypair(),
+        ),
+      );
+    });
+
+    it("deposit fails at circuit level if recipient is not KYC-registered", async function () {
+      this.timeout(600000);
+      await expectCircuitReject(() =>
+        proveDeposit(
+          [newUTXO(50, Stranger), newUTXO(50, Stranger)], [Stranger, Stranger],
+          smtKyc, smtCompAllActive, Arbiter, Enforcer, genKeypair(),
+        ),
+      );
+    });
+  });
+
+  // ── compliance gating ──
+
+  describe("compliance gating", function () {
+    it("transfer fails at circuit level if sender is FROZEN", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(50, Alice);
+      const u2 = newUTXO(50, Alice);
+      await mintAndTrack([u1, u2]);
+
+      await expectCircuitReject(() =>
+        proveTransfer(
+          Alice, [u1, u2], [newUTXO(50, Bob), newUTXO(50, Alice)],
+          [Bob, Alice], smtAlice, smtKyc, smtCompAliceFrozen,
+          Arbiter, Enforcer, genKeypair(),
+        ),
+      );
+    });
+
+    it("transfer fails at circuit level if recipient is FROZEN", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(50, Alice);
+      const u2 = newUTXO(50, Alice);
+      await mintAndTrack([u1, u2]);
+
+      await expectCircuitReject(() =>
+        proveTransfer(
+          Alice, [u1, u2], [newUTXO(50, Bob), newUTXO(50, Alice)],
+          [Bob, Alice], smtAlice, smtKyc, smtCompBobFrozen,
+          Arbiter, Enforcer, genKeypair(),
+        ),
+      );
+    });
+
+    it("withdraw fails at circuit level if sender is FROZEN", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(40, Alice);
+      const u2 = newUTXO(60, Alice);
+      await mintAndTrack([u1, u2]);
+
+      await expectCircuitReject(() =>
+        proveWithdraw(
+          Alice, [u1, u2], newUTXO(20, Alice), 80,
+          smtAlice, smtKyc, smtCompAliceFrozen,
+          Arbiter, Enforcer, genKeypair(),
+        ),
+      );
+    });
+
+    it("deposit fails at circuit level if recipient is FROZEN", async function () {
+      this.timeout(600000);
+      await expectCircuitReject(() =>
+        proveDeposit(
+          [newUTXO(50, Bob), newUTXO(50, Bob)], [Bob, Bob],
+          smtKyc, smtCompBobFrozen, Arbiter, Enforcer, genKeypair(),
+        ),
+      );
+    });
+  });
+
+  // ── value conservation ──
+
+  describe("value conservation", function () {
+    it("deposit fails on-chain when amount != sum(outputValues)", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(40, Alice);
+      const u2 = newUTXO(50, Alice);
+
+      // Generate proof normally — circuit output `out` = 90
+      const ephKp = genKeypair();
+      const dp = await proveDeposit(
+        [u1, u2], [Alice, Alice],
+        smtKyc, smtCompAllActive, Arbiter, Enforcer, ephKp,
+      );
+
+      // Mint enough ERC-20 for the mismatched amount
+      await (await erc20.connect(deployer).mint(Alice.ethAddress, 100)).wait();
+      await (await erc20.connect(Alice.signer).approve(zeto.target, 100)).wait();
+
+      // Submit with amount=100 but proof binds to out=90 → verifier rejects
+      await expect(
+        zeto.connect(Alice.signer).deposit(
+          100, dp.outputCommitments,
+          encodeDepositProof(dp.encryptionNonce, dp.ecdhPublicKey, dp.encRecv!, dp.encArb!, dp.encEnf, dp.encodedProof),
+          "0x",
+        ),
+      ).to.be.revertedWith("Invalid proof");
+    });
+  });
+
+  // ── forced transfer edge cases ──
+
+  describe("forced transfer edge cases", function () {
+    it("forced transfer fails at circuit level with inputs from two different owners", async function () {
+      this.timeout(600000);
+      const aliceUtxo = newUTXO(50, Alice);
+      const bobUtxo = newUTXO(50, Bob);
+      await mintAndTrack([aliceUtxo, bobUtxo]);
+
+      await expectCircuitReject(() =>
+        proveForcedTransfer(
+          Alice, [aliceUtxo, bobUtxo],
+          [newUTXO(100, Charlie), ZERO_UTXO], [Charlie, Charlie],
+          smtAlice, smtKyc, smtCompAliceFrozen,
+          Arbiter, Enforcer, genKeypair(),
+        ),
+      );
+    });
+
+    it("forced transfer succeeds with change back to the same FROZEN owner", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(25, Alice);
+      const u2 = newUTXO(75, Alice);
+      await mintAndTrack([u1, u2]);
+
+      // Ensure on-chain compliance root is Alice-frozen
+      const frozenRoot = (await complianceProof(smtCompAliceFrozen, Alice.babyJubPublicKey)).root;
+      await (await zeto.connect(deployer).setComplianceRoot(frozenRoot, "0x")).wait();
+
+      const seizureOut = newUTXO(80, Bob);
+      const changeOut = newUTXO(20, Alice);
+      const ephKp = genKeypair();
+
+      const fp = await proveForcedTransfer(
+        Alice, [u1, u2],
+        [seizureOut, changeOut], [Bob, Alice],
+        smtAlice, smtKyc, smtCompAliceFrozen,
+        Arbiter, Enforcer, ephKp,
+      );
+
+      const result = await (await zeto.connect(deployer).forcedTransfer(
+        fp.outputCommitments,
+        encodeForcedTransferProof(
+          fp.enfNullifiers, fp.utxosRoot!, fp.enabledInputs!,
+          fp.encryptionNonce, fp.ecdhPublicKey,
+          fp.encRecv!, fp.encArb!, fp.encEnf, fp.encodedProof,
+        ),
+        "0x",
+      )).wait();
+
+      const ev = findEvent(zeto, result!, "UTXOForcedTransferEnforced");
+      expect(ev).to.not.be.undefined;
+
+      // Enforcement nullifiers marked spent
+      for (const n of fp.enfNullifiers) {
+        if (n !== 0n) expect(await zeto.enforcementNullifierSpent(n)).to.be.true;
+      }
+
+      await trackUtxos([smtAlice, smtBob], seizureOut, changeOut);
+
+      // Restore all-active root for subsequent tests
+      const activeRoot = (await complianceProof(smtCompAllActive, Alice.babyJubPublicKey)).root;
+      await (await zeto.connect(deployer).setComplianceRoot(activeRoot, "0x")).wait();
+    });
+
+    it("forced transfer fails at circuit level when output goes to a FROZEN non-seized party", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(50, Alice);
+      const u2 = newUTXO(50, Alice);
+      await mintAndTrack([u1, u2]);
+
+      // Both Alice and Bob frozen
+      const smtCompBothFrozen = new Merkletree(new InMemoryDB(str2Bytes("comp-both-frozen")), true, SMT_HEIGHT);
+      await addComplianceLeaf(smtCompBothFrozen, Alice.babyJubPublicKey, STATUS_FROZEN);
+      await addComplianceLeaf(smtCompBothFrozen, Bob.babyJubPublicKey, STATUS_FROZEN);
+      await addComplianceLeaf(smtCompBothFrozen, Charlie.babyJubPublicKey, STATUS_ACTIVE);
+
+      // Bob is FROZEN but is NOT the seized owner → circuit expects ACTIVE for Bob → fails
+      await expectCircuitReject(() =>
+        proveForcedTransfer(
+          Alice, [u1, u2],
+          [newUTXO(100, Bob), ZERO_UTXO], [Bob, Bob],
+          smtAlice, smtKyc, smtCompBothFrozen,
+          Arbiter, Enforcer, genKeypair(),
+        ),
+      );
+    });
+  });
+
+  // ── stale root rejection ──
+
+  describe("stale root rejection", function () {
+    it("transfer fails on-chain with stale compliance root", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(30, Alice);
+      const u2 = newUTXO(70, Alice);
+      await mintAndTrack([u1, u2]);
+
+      // Generate proof against current (all-active) compliance root
+      const ephKp = genKeypair();
+      const tp = await proveTransfer(
+        Alice, [u1, u2], [newUTXO(50, Bob), newUTXO(50, Alice)],
+        [Bob, Alice], smtAlice, smtKyc, smtCompAllActive,
+        Arbiter, Enforcer, ephKp,
+      );
+
+      // Swap compliance root on-chain before submitting
+      const frozenRoot = (await complianceProof(smtCompAliceFrozen, Alice.babyJubPublicKey)).root;
+      await (await zeto.connect(deployer).setComplianceRoot(frozenRoot, "0x")).wait();
+
+      // Proof was generated against old root → pi mismatch → verifier rejects
+      await expect(
+        zeto.connect(Alice.signer).transfer(
+          tp.nullifiers!.filter((n) => n !== 0n),
+          tp.outputCommitments.filter((c) => c !== 0n),
+          encodeTransferProof(
+            tp.utxosRoot!, tp.enfNullifiers, tp.encryptionNonce,
+            tp.ecdhPublicKey, tp.encRecv!, tp.encArb!, tp.encEnf, tp.encodedProof,
+          ),
+          "0x",
+        ),
+      ).to.be.revertedWith("Invalid proof");
+
+      // Restore active root
+      const activeRoot = (await complianceProof(smtCompAllActive, Alice.babyJubPublicKey)).root;
+      await (await zeto.connect(deployer).setComplianceRoot(activeRoot, "0x")).wait();
+    });
+  });
+
+  // ── disabled-slot gating ──
+
+  describe("disabled-slot gating", function () {
+    it("transfer with one zero input and one zero output succeeds (padding slots skipped)", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(100, Alice);
+      await mintAndTrack([u1]);
+
+      const ephKp = genKeypair();
+      const tp = await proveTransfer(
+        Alice, [u1, ZERO_UTXO], [newUTXO(50, Bob), newUTXO(50, Alice)],
+        [Bob, Alice], smtAlice, smtKyc, smtCompAllActive,
+        Arbiter, Enforcer, ephKp,
+      );
+
+      const result = await (await zeto.connect(Alice.signer).transfer(
+        tp.nullifiers!.filter((n) => n !== 0n),
+        tp.outputCommitments.filter((c) => c !== 0n),
+        encodeTransferProof(
+          tp.utxosRoot!, tp.enfNullifiers, tp.encryptionNonce,
+          tp.ecdhPublicKey, tp.encRecv!, tp.encArb!, tp.encEnf, tp.encodedProof,
+        ),
+        "0x",
+      )).wait();
+      expect(result!.status).to.equal(1);
+
+      // Zero-input slot's nullifiers should NOT be marked spent
+      expect(await zeto.ownerNullifierSpent(tp.nullifiers![1])).to.be.false;
+      expect(await zeto.enforcementNullifierSpent(tp.enfNullifiers[1])).to.be.false;
+
+      await trackUtxos([smtAlice, smtBob], ...tp.outputCommitments
+        .filter((c) => c !== 0n)
+        .map((c) => ({ hash: c, value: 50 } as UTXO)));
+    });
+  });
+
+  // ── forced transfer access control ──
+
+  describe("forced transfer access control", function () {
+    it("forcedTransfer reverts when enforcer key is wrong in proof", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(50, Alice);
+      const u2 = newUTXO(50, Alice);
+      await mintAndTrack([u1, u2]);
+
+      // Ensure on-chain compliance root is Alice-frozen
+      const frozenRoot = (await complianceProof(smtCompAliceFrozen, Alice.babyJubPublicKey)).root;
+      await (await zeto.connect(deployer).setComplianceRoot(frozenRoot, "0x")).wait();
+
+      // FakeEnforcer: different private key → BabyPbk(fakePriv) != enforcerPublicKey → constraint fails
+      const FakeEnforcer = await newUser((await ethers.getSigners())[9]);
+
+      await expectCircuitReject(async () => {
+        const inputCommitments = [u1, u2].map((u) => u.hash);
+        const enfNullifiers = inputCommitments.map((c) =>
+          computeEnforcementNullifier(FakeEnforcer.babyJubPrivateKey, Alice.babyJubPublicKey, c),
+        );
+        const enabledInputs = inputCommitments.map((c) => (c !== 0n ? 1 : 0));
+        const encryptionNonce = newEncryptionNonce() as BigNumberish;
+        const ephKp = genKeypair();
+        const out1 = newUTXO(100, Charlie);
+
+        const actors = [Alice, Charlie, Charlie];
+        const kycProofs = await Promise.all(actors.map((a) => kycProof(smtKyc, a.babyJubPublicKey)));
+        const compProofs = await Promise.all(actors.map((a) => complianceProof(smtCompAliceFrozen, a.babyJubPublicKey)));
+        const utxoProofs = await Promise.all(inputCommitments.map((c) => utxoProof(smtAlice, c)));
+
+        await generateProof("forced_transfer_nullifier_kyc_enforced", {
+          enforcementNullifiers: enfNullifiers,
+          outputCommitments: [out1.hash, ZERO_UTXO.hash],
+          utxosRoot: utxoProofs[0].root,
+          identitiesRoot: kycProofs[0].root,
+          complianceRoot: compProofs[0].root,
+          enabledInputs,
+          enforcerPublicKey: Enforcer.babyJubPublicKey, // real on-chain enforcer key
+          arbiterPublicKey: Arbiter.babyJubPublicKey,
+          inputCommitments,
+          inputValues: [u1, u2].map((u) => BigInt(u.value || 0)),
+          inputSalts: [u1, u2].map((u) => u.salt || 0n),
+          seizedOwnerPublicKey: Alice.babyJubPublicKey,
+          enforcerPrivateKey: FakeEnforcer.formattedPrivateKey, // WRONG key
+          utxosMerkleProof: utxoProofs.map((p) => p.siblings),
+          identitiesMerkleProof: kycProofs.map((p) => p.siblings),
+          complianceMerkleProof: compProofs.map((p) => p.siblings),
+          outputValues: [BigInt(out1.value || 0), 0n],
+          outputSalts: [out1.salt || 0n, 0n],
+          outputOwnerPublicKeys: [Charlie.babyJubPublicKey, Charlie.babyJubPublicKey],
+          ...stringifyBigInts({ encryptionNonce, ecdhPrivateKey: formatPrivKeyForBabyJub(ephKp.privKey) }),
+        });
+      });
+
+      // Restore active root
+      const activeRoot = (await complianceProof(smtCompAllActive, Alice.babyJubPublicKey)).root;
+      await (await zeto.connect(deployer).setComplianceRoot(activeRoot, "0x")).wait();
     });
   });
 });
