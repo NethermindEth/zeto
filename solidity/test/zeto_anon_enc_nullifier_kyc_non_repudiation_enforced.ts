@@ -1015,6 +1015,89 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       await (await zeto.connect(deployer).setComplianceRoot(activeRoot, "0x")).wait();
     });
 
+    it("forced transfer succeeds with full-balance seizure (zero-change slot with [0,0] key)", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(40, Alice);
+      const u2 = newUTXO(60, Alice);
+      await mintAndTrack([u1, u2]);
+
+      // Ensure on-chain compliance root is Alice-frozen
+      const frozenRoot = (await complianceProof(smtCompAliceFrozen, Alice.babyJubPublicKey)).root;
+      await (await zeto.connect(deployer).setComplianceRoot(frozenRoot, "0x")).wait();
+
+      const seizureOutput = newUTXO(100, Bob);
+      const ephKp = genKeypair();
+
+      // Build proof manually to inject [0,0] as the zero-slot owner key
+      const inputCommitments = [u1, u2].map((u) => u.hash);
+      const enfNullifiers = inputCommitments.map((c) =>
+        computeEnforcementNullifier(Enforcer.babyJubPrivateKey, Alice.babyJubPublicKey, c),
+      );
+      const enabledInputs = inputCommitments.map((c) => (c !== 0n ? 1 : 0));
+      const encryptionNonce = newEncryptionNonce() as BigNumberish;
+
+      // KYC/compliance proofs: [seizedOwner, output0Owner, output1Owner]
+      // output1 is zero-commitment → gated off, but we still need valid merkle proof arrays
+      const actors = [Alice, Bob, Bob];
+      const kycProofs = await Promise.all(actors.map((a) => kycProof(smtKyc, a.babyJubPublicKey)));
+      const compProofs = await Promise.all(actors.map((a) => complianceProof(smtCompAliceFrozen, a.babyJubPublicKey)));
+      const utxoProofs = await Promise.all(inputCommitments.map((c) => utxoProof(smtAlice, c)));
+
+      const { encodedProof, publicSignals } = await generateProof(
+        "forced_transfer_nullifier_kyc_enforced",
+        {
+          enforcementNullifiers: enfNullifiers,
+          outputCommitments: [seizureOutput.hash, 0n],
+          utxosRoot: utxoProofs[0].root,
+          identitiesRoot: kycProofs[0].root,
+          complianceRoot: compProofs[0].root,
+          enabledInputs,
+          enforcerPublicKey: Enforcer.babyJubPublicKey,
+          arbiterPublicKey: Arbiter.babyJubPublicKey,
+          inputCommitments,
+          inputValues: [u1, u2].map((u) => BigInt(u.value || 0)),
+          inputSalts: [u1, u2].map((u) => u.salt || 0n),
+          seizedOwnerPublicKey: Alice.babyJubPublicKey,
+          enforcerPrivateKey: Enforcer.formattedPrivateKey,
+          utxosMerkleProof: utxoProofs.map((p) => p.siblings),
+          identitiesMerkleProof: kycProofs.map((p) => p.siblings),
+          complianceMerkleProof: compProofs.map((p) => p.siblings),
+          outputValues: [BigInt(seizureOutput.value || 0), 0n],
+          outputSalts: [seizureOutput.salt || 0n, 0n],
+          outputOwnerPublicKeys: [Bob.babyJubPublicKey, [0n, 0n]],
+          ...stringifyBigInts({ encryptionNonce, ecdhPrivateKey: formatPrivKeyForBabyJub(ephKp.privKey) }),
+        },
+      );
+
+      const ecdhPublicKey = publicSignals.slice(0, 2);
+      const encRecv = publicSignals.slice(2, 10);
+      const encArb = publicSignals.slice(10, 26);
+      const encEnf = publicSignals.slice(26, 42);
+
+      const result = await (await zeto.connect(deployer).forcedTransfer(
+        [seizureOutput.hash, 0n],
+        encodeForcedTransferProof(
+          enfNullifiers, utxoProofs[0].root, enabledInputs,
+          encryptionNonce, ecdhPublicKey,
+          encRecv, encArb, encEnf, encodedProof,
+        ),
+        "0x",
+      )).wait();
+
+      const ev = findEvent(zeto, result!, "UTXOForcedTransferEnforced");
+      expect(ev).to.not.be.undefined;
+
+      for (const n of enfNullifiers) {
+        if (n !== 0n) expect(await zeto.enforcementNullifierSpent(n)).to.be.true;
+      }
+
+      await trackUtxos([smtAlice, smtBob], seizureOutput);
+
+      // Restore active root
+      const activeRoot2 = (await complianceProof(smtCompAllActive, Alice.babyJubPublicKey)).root;
+      await (await zeto.connect(deployer).setComplianceRoot(activeRoot2, "0x")).wait();
+    });
+
     it("forced transfer fails at circuit level when output goes to a FROZEN non-seized party", async function () {
       this.timeout(600000);
       const u1 = newUTXO(50, Alice);
