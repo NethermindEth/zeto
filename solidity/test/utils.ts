@@ -24,11 +24,7 @@ import { User, UTXO, ZERO_UTXO } from "./lib/utils";
 import { formatPrivKeyForBabyJub, stringifyBigInts } from "maci-crypto";
 
 function provingKeysRoot() {
-  const PROVING_KEYS_ROOT = process.env.PROVING_KEYS_ROOT;
-  if (!PROVING_KEYS_ROOT) {
-    throw new Error("PROVING_KEYS_ROOT env var is not set");
-  }
-  return PROVING_KEYS_ROOT;
+  return process.env.PROVING_KEYS_ROOT || path.resolve(__dirname, "..", "..", "zkp", "artifacts");
 }
 
 export function loadProvingKeys(type: string) {
