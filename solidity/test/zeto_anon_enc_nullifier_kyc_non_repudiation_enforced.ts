@@ -45,7 +45,9 @@ const poseidonHash3 = Poseidon.poseidon3;
 
 const STATUS_ACTIVE = 1n;
 const STATUS_FROZEN = 2n;
-const SMT_HEIGHT = 64; // used for UTXO, identity, and compliance trees
+const SMT_HEIGHT_UTXO = 32;
+const SMT_HEIGHT_IDENTITY = 20;
+const SMT_HEIGHT_COMPLIANCE = 20;
 
 const ENF_DOMAIN_TAG =
   21455947405572920533869930548514094044543253524099188107381343679564123236615n;
@@ -440,26 +442,26 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     }
 
     // Local KYC SMT mirror
-    smtKyc = new Merkletree(new InMemoryDB(str2Bytes("kyc")), true, SMT_HEIGHT);
+    smtKyc = new Merkletree(new InMemoryDB(str2Bytes("kyc")), true, SMT_HEIGHT_IDENTITY);
     for (const user of [Alice, Bob, Charlie]) {
       const h = kycHash(user.babyJubPublicKey);
       await smtKyc.add(h, h);
     }
 
     // Compliance: all ACTIVE
-    smtCompAllActive = new Merkletree(new InMemoryDB(str2Bytes("comp-active")), true, SMT_HEIGHT);
+    smtCompAllActive = new Merkletree(new InMemoryDB(str2Bytes("comp-active")), true, SMT_HEIGHT_COMPLIANCE);
     for (const user of [Alice, Bob, Charlie]) {
       await addComplianceLeaf(smtCompAllActive, user.babyJubPublicKey, STATUS_ACTIVE);
     }
 
     // Compliance: Alice FROZEN, Bob+Charlie ACTIVE
-    smtCompAliceFrozen = new Merkletree(new InMemoryDB(str2Bytes("comp-frozen")), true, SMT_HEIGHT);
+    smtCompAliceFrozen = new Merkletree(new InMemoryDB(str2Bytes("comp-frozen")), true, SMT_HEIGHT_COMPLIANCE);
     await addComplianceLeaf(smtCompAliceFrozen, Alice.babyJubPublicKey, STATUS_FROZEN);
     await addComplianceLeaf(smtCompAliceFrozen, Bob.babyJubPublicKey, STATUS_ACTIVE);
     await addComplianceLeaf(smtCompAliceFrozen, Charlie.babyJubPublicKey, STATUS_ACTIVE);
 
     // Compliance: Bob FROZEN, Alice+Charlie ACTIVE
-    smtCompBobFrozen = new Merkletree(new InMemoryDB(str2Bytes("comp-bob-frozen")), true, SMT_HEIGHT);
+    smtCompBobFrozen = new Merkletree(new InMemoryDB(str2Bytes("comp-bob-frozen")), true, SMT_HEIGHT_COMPLIANCE);
     await addComplianceLeaf(smtCompBobFrozen, Alice.babyJubPublicKey, STATUS_ACTIVE);
     await addComplianceLeaf(smtCompBobFrozen, Bob.babyJubPublicKey, STATUS_FROZEN);
     await addComplianceLeaf(smtCompBobFrozen, Charlie.babyJubPublicKey, STATUS_ACTIVE);
@@ -468,8 +470,8 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     Stranger = await newUser((await ethers.getSigners())[8]);
 
     // UTXO SMTs (per-user local mirrors)
-    smtAlice = new Merkletree(new InMemoryDB(str2Bytes("alice")), true, SMT_HEIGHT);
-    smtBob = new Merkletree(new InMemoryDB(str2Bytes("bob")), true, SMT_HEIGHT);
+    smtAlice = new Merkletree(new InMemoryDB(str2Bytes("alice")), true, SMT_HEIGHT_UTXO);
+    smtBob = new Merkletree(new InMemoryDB(str2Bytes("bob")), true, SMT_HEIGHT_UTXO);
   });
 
   // ── deployment and admin ──
@@ -1105,7 +1107,7 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       await mintAndTrack([u1, u2]);
 
       // Both Alice and Bob frozen
-      const smtCompBothFrozen = new Merkletree(new InMemoryDB(str2Bytes("comp-both-frozen")), true, SMT_HEIGHT);
+      const smtCompBothFrozen = new Merkletree(new InMemoryDB(str2Bytes("comp-both-frozen")), true, SMT_HEIGHT_COMPLIANCE);
       await addComplianceLeaf(smtCompBothFrozen, Alice.babyJubPublicKey, STATUS_FROZEN);
       await addComplianceLeaf(smtCompBothFrozen, Bob.babyJubPublicKey, STATUS_FROZEN);
       await addComplianceLeaf(smtCompBothFrozen, Charlie.babyJubPublicKey, STATUS_ACTIVE);

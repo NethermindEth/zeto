@@ -20,8 +20,8 @@ const {
   poseidonDecrypt,
 } = require("../index.js");
 
-const SMT_HEIGHT_IDENTITY = 64;
-const SMT_HEIGHT_COMPLIANCE = 64;
+const SMT_HEIGHT_IDENTITY = 20;
+const SMT_HEIGHT_COMPLIANCE = 20;
 const poseidonHash = Poseidon.poseidon4;
 const poseidonHash2 = Poseidon.poseidon2;
 const poseidonHash3 = Poseidon.poseidon3;

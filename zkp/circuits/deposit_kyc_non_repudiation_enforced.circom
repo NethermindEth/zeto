@@ -162,4 +162,4 @@ template DepositEnforced(nOutputs, nIdentitiesSMTLevels, nComplianceSMTLevels) {
 //   encryptedValuesForReceiver[2][4], encryptedValuesForArbiter[16], encryptedValuesForEnforcer[16]
 component main { public [ outputCommitments, identitiesRoot, complianceRoot,
                           encryptionNonce, arbiterPublicKey, enforcerPublicKey ] }
-  = DepositEnforced(2, 64, 64);
+  = DepositEnforced(2, 20, 20);

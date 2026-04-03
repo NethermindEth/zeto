@@ -228,4 +228,4 @@ template WithdrawEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevel
 component main { public [ amount, ownerNullifiers, enforcementNullifiers, outputCommitments,
                           utxosRoot, identitiesRoot, complianceRoot, enabledInputs,
                           encryptionNonce, arbiterPublicKey, enforcerPublicKey ] }
-  = WithdrawEnforced(2, 1, 64, 64, 64);
+  = WithdrawEnforced(2, 1, 32, 20, 20);

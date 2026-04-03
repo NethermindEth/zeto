@@ -8,4 +8,4 @@ include "./basetokens/anon_enc_nullifier_kyc_non_repudiation_enforced_base.circo
 component main { public [ ownerNullifiers, enforcementNullifiers, outputCommitments,
                           encryptionNonce, utxosRoot, identitiesRoot, complianceRoot,
                           enabledInputs, arbiterPublicKey, enforcerPublicKey ] }
-  = Zeto(2, 2, 64, 64, 64);
+  = Zeto(2, 2, 32, 20, 20);
