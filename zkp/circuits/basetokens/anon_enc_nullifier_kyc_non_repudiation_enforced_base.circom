@@ -113,13 +113,23 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
   // Merkle Tree with the root `utxosRoot`.
   CheckSMTProof(nInputs, nUTXOSMTLevels)(root <== utxosRoot, merkleProof <== utxosMerkleProof, enabled <== enabledInputs, leafNodeIndexes <== inputCommitments, leafNodeValues <== inputCommitments);
 
+  // Hoist isCommitmentZero — shared by BabyCheck gating, KYC gating, and compliance gating.
+  var isCommitmentZero[nOutputs];
+  for (var i = 0; i < nOutputs; i++) {
+    isCommitmentZero[i] = IsZero()(in <== outputCommitments[i]);
+  }
+
   // Validate external public keys are on the BabyJubJub curve.
   // Keys derived in-circuit via BabyPbk (inputOwnerPublicKey) are exempt.
-  // External keys entering ECDH must pass BabyCheck for defence-in-depth.
+  // For zero-commitment output slots, substitute (0,1) (BabyJubJub identity point)
+  // because the raw key may be (0,0) which is not on the curve.
   CheckBabyJubPublicKey()(publicKey <== arbiterPublicKey);
   CheckBabyJubPublicKey()(publicKey <== enforcerPublicKey);
   for (var i = 0; i < nOutputs; i++) {
-    CheckBabyJubPublicKey()(publicKey <== outputOwnerPublicKeys[i]);
+    var checkedKey[2];
+    checkedKey[0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
+    checkedKey[1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1] + isCommitmentZero[i];
+    CheckBabyJubPublicKey()(publicKey <== checkedKey);
   }
 
   // Check that the owner public keys for inputs and outputs are
@@ -128,9 +138,7 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
   // which Kyc skips via pubkey-zero gating (mirrors kyc.circom pattern).
   var ownerPublicKeys[nOutputs + 1][2];
   ownerPublicKeys[0] = [inputOwnerPubKeyAx, inputOwnerPubKeyAy];
-  var isCommitmentZero[nOutputs];
   for (var i = 0; i < nOutputs; i++) {
-    isCommitmentZero[i] = IsZero()(in <== outputCommitments[i]);
     ownerPublicKeys[i + 1][0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
     ownerPublicKeys[i + 1][1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1];
   }

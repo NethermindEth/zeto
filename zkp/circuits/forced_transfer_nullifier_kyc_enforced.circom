@@ -130,14 +130,24 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
   // The proof is private (Merkle paths are private witnesses); only the root is public.
   CheckSMTProof(nInputs, nUTXOSMTLevels)(root <== utxosRoot, merkleProof <== utxosMerkleProof, enabled <== enabledInputs, leafNodeIndexes <== inputCommitments, leafNodeValues <== inputCommitments);
 
+  // Hoist isCommitmentZero — shared by BabyCheck gating, KYC gating, and compliance gating.
+  var isCommitmentZero[nOutputs];
+  for (var i = 0; i < nOutputs; i++) {
+    isCommitmentZero[i] = IsZero()(in <== outputCommitments[i]);
+  }
+
   // Validate external public keys are on the BabyJubJub curve.
   // Keys derived in-circuit via BabyPbk (enforcerPublicKey) are exempt.
   // seizedOwnerPublicKey enters ECDH as counterparty — must be validated.
-  // External keys entering ECDH must pass BabyCheck for defence-in-depth.
+  // For zero-commitment output slots, substitute (0,1) (BabyJubJub identity point)
+  // because the raw key may be (0,0) which is not on the curve.
   CheckBabyJubPublicKey()(publicKey <== arbiterPublicKey);
   CheckBabyJubPublicKey()(publicKey <== seizedOwnerPublicKey);
   for (var i = 0; i < nOutputs; i++) {
-    CheckBabyJubPublicKey()(publicKey <== outputOwnerPublicKeys[i]);
+    var checkedKey[2];
+    checkedKey[0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
+    checkedKey[1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1] + isCommitmentZero[i];
+    CheckBabyJubPublicKey()(publicKey <== checkedKey);
   }
 
   // Check that the seized owner and non-zero output owner public keys are
@@ -146,9 +156,7 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
   // which Kyc skips via pubkey-zero gating (mirrors kyc.circom pattern).
   var kycPublicKeys[nOutputs + 1][2];
   kycPublicKeys[0] = [seizedOwnerPublicKey[0], seizedOwnerPublicKey[1]];
-  var isCommitmentZero[nOutputs];
   for (var i = 0; i < nOutputs; i++) {
-    isCommitmentZero[i] = IsZero()(in <== outputCommitments[i]);
     kycPublicKeys[i + 1][0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
     kycPublicKeys[i + 1][1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1];
   }

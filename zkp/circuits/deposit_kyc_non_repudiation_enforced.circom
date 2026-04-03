@@ -79,21 +79,29 @@ template DepositEnforced(nOutputs, nIdentitiesSMTLevels, nComplianceSMTLevels) {
   }
   out <== sumOutputs;
 
+  // Hoist isCommitmentZero — shared by BabyCheck gating, KYC gating, and compliance gating.
+  var isCommitmentZero[nOutputs];
+  for (var i = 0; i < nOutputs; i++) {
+    isCommitmentZero[i] = IsZero()(in <== outputCommitments[i]);
+  }
+
   // Validate external public keys are on the BabyJubJub curve.
   // Keys derived in-circuit via BabyPbk (ecdhPublicKey) are exempt.
-  // External keys entering ECDH must pass BabyCheck for defence-in-depth.
+  // For zero-commitment output slots, substitute (0,1) (BabyJubJub identity point)
+  // because the raw key may be (0,0) which is not on the curve.
   CheckBabyJubPublicKey()(publicKey <== arbiterPublicKey);
   CheckBabyJubPublicKey()(publicKey <== enforcerPublicKey);
   for (var i = 0; i < nOutputs; i++) {
-    CheckBabyJubPublicKey()(publicKey <== outputOwnerPublicKeys[i]);
+    var checkedKey[2];
+    checkedKey[0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
+    checkedKey[1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1] + isCommitmentZero[i];
+    CheckBabyJubPublicKey()(publicKey <== checkedKey);
   }
 
   // Commitment-zero gating: disabled output slots produce zero public keys,
   // which Kyc and ComplianceStatus skip via pubkey-zero gating.
   var ownerPublicKeys[nOutputs][2];
-  var isCommitmentZero[nOutputs];
   for (var i = 0; i < nOutputs; i++) {
-    isCommitmentZero[i] = IsZero()(in <== outputCommitments[i]);
     ownerPublicKeys[i][0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
     ownerPublicKeys[i][1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1];
   }
