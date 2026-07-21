@@ -60,6 +60,7 @@ describe("(factory upgradeable) Zeto based fungible token with anonymity without
         batchLockVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
         burnVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
         batchBurnVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     await expect(
@@ -88,6 +89,7 @@ describe("(factory upgradeable) Zeto based fungible token with anonymity without
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     await expect(
@@ -110,6 +112,7 @@ describe("(factory upgradeable) Zeto based fungible token with anonymity without
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     await expect(
@@ -132,6 +135,7 @@ describe("(factory upgradeable) Zeto based fungible token with anonymity without
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     await expect(
@@ -154,6 +158,7 @@ describe("(factory upgradeable) Zeto based fungible token with anonymity without
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
@@ -188,6 +193,7 @@ describe("(factory upgradeable) Zeto based fungible token with anonymity without
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
@@ -222,6 +228,7 @@ describe("(factory upgradeable) Zeto based fungible token with anonymity without
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
@@ -256,6 +263,7 @@ describe("(factory upgradeable) Zeto based fungible token with anonymity without
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
@@ -290,6 +298,7 @@ describe("(factory upgradeable) Zeto based fungible token with anonymity without
         batchLockVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
         burnVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
         batchBurnVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
