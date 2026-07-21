@@ -1,5 +1,5 @@
 {
-  "circomVersion": "2.2.2",
+  "circomVersion": "2.2.3",
   "circuits": {
     "anon": {
       "ptau": "powersOfTau28_hez_final_13",
@@ -75,6 +75,18 @@
     "burn_nullifier": {
       "ptau": "powersOfTau28_hez_final_17",
       "batchPtau": "powersOfTau28_hez_final_19"
+    },
+    "anon_enc_nullifier_kyc_non_repudiation_enforced": {
+      "ptau": "powersOfTau28_hez_final_20"
+    },
+    "deposit_kyc_non_repudiation_enforced": {
+      "ptau": "powersOfTau28_hez_final_19"
+    },
+    "withdraw_nullifier_kyc_enforced": {
+      "ptau": "powersOfTau28_hez_final_20"
+    },
+    "forced_transfer_nullifier_kyc_enforced": {
+      "ptau": "powersOfTau28_hez_final_20"
     }
   }
 }
