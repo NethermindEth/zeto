@@ -78,11 +78,11 @@ contract Zeto_AnonEncNullifierNonRepudiation is Zeto_AnonEncNullifier {
         __ZetoAnonEncNullifier_init(name_, symbol_, initialOwner, verifiers);
     }
 
-    function setArbiter(uint256[2] memory _arbiter) public onlyOwner {
+    function setArbiter(uint256[2] memory _arbiter) public virtual onlyOwner {
         arbiter = _arbiter;
     }
 
-    function getArbiter() public view returns (uint256[2] memory) {
+    function getArbiter() public view virtual returns (uint256[2] memory) {
         return arbiter;
     }
 
@@ -91,7 +91,7 @@ contract Zeto_AnonEncNullifierNonRepudiation is Zeto_AnonEncNullifier {
         uint256[] memory outputs,
         bytes memory proof,
         bytes memory data
-    ) internal override {
+    ) internal virtual override {
         (_DecodedProof_NonRepudiation memory dp, ) = decodeProof_NonRepudiation(
             proof
         );
@@ -131,7 +131,7 @@ contract Zeto_AnonEncNullifierNonRepudiation is Zeto_AnonEncNullifier {
         uint256[] memory outputs,
         bytes memory proof,
         bool inputsLocked
-    ) internal override returns (uint256[] memory, Commonlib.Proof memory) {
+    ) internal virtual override returns (uint256[] memory, Commonlib.Proof memory) {
         (
             _DecodedProof_NonRepudiation memory dp,
             Commonlib.Proof memory proofStruct

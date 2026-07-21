@@ -261,7 +261,7 @@ abstract contract ZetoFungible is ZetoCommon {
         uint256[] calldata outputs,
         bytes calldata proof,
         bytes calldata data
-    ) public {
+    ) public virtual {
         validateOutputs(outputs);
 
         // verifies that the output UTXOs match the claimed value
@@ -305,7 +305,7 @@ abstract contract ZetoFungible is ZetoCommon {
         uint256 output,
         bytes calldata proof,
         bytes calldata data
-    ) public {
+    ) public virtual {
         uint256[] memory outputs = new uint256[](1);
         outputs[0] = output;
         uint256[] memory lockedOutputs;
