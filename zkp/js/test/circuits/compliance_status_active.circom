@@ -17,5 +17,9 @@ pragma circom 2.2.2;
 
 include "../../../circuits/lib/compliance-status.circom";
 
-// STATUS=1 (ACTIVE), nIdentities=1, nComplianceSMTLevels=20 — production depth
+// The status argument is written out rather than taken from
+// compliance-constants.circom on purpose: this wrapper exists to check the leaf
+// encoding, so it must not read the encoding from the same place the circuit
+// does. The remaining arguments are nComplianceSMTLevels and nIdentities, at
+// production depth.
 component main { public [ root ] } = ComplianceStatus(1, 20, 1);

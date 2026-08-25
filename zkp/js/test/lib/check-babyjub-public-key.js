@@ -60,11 +60,10 @@ describe("CheckBabyJubPublicKey circuit tests", () => {
   it("should reject the BabyJub identity point", async () => {
     // The additive identity (0, 1) satisfies the curve equation:
     //   168700*0 + 1 = 1  =  1 + 168696*0 = 1  ✓
-    // so BabyCheck alone accepts it. This used to be asserted as expected
-    // behaviour. It is not: every consumer of a key reads x == 0 as something
-    // else — Kyc and ComplianceStatus as "slot disabled", EscalarMulAny as
-    // "use the Base8 generator" — so the key silently disables the checks that
-    // were supposed to guard it.
+    // so BabyCheck alone accepts it, which is not enough. Every consumer of a
+    // key reads x == 0 as something else: Kyc and ComplianceStatus read it as
+    // "slot disabled" and EscalarMulAny as "use the Base8 generator". Such a
+    // key therefore disables the checks meant to guard it, without a trace.
     const identity = [0n, 1n];
 
     let error;

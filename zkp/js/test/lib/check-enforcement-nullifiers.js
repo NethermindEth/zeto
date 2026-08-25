@@ -50,7 +50,7 @@ describe("CheckEnforcementNullifiers circuit tests", () => {
     enforcer.pubKey = kp.pubKey;
   });
 
-  // ── helper: build two valid commitments and their enforcement nullifiers ──
+  /** Builds two valid commitments and their enforcement nullifiers. */
   function makeInputs() {
     const c1 = poseidon4([100n, newSalt(), ...owner.pubKey]);
     const c2 = poseidon4([200n, newSalt(), ...owner.pubKey]);
@@ -109,10 +109,10 @@ describe("CheckEnforcementNullifiers circuit tests", () => {
   });
 
   it("an enabled slot may not suppress its nullifier to zero", async () => {
-    // This used to be asserted as correct behaviour: a zero tag was read as
-    // "slot disabled" and skipped the check. That let a spend consume a real
-    // note while publishing no enforcement tag, so nothing recorded the note as
-    // spent on the enforcement domain. The slot is now gated by `enabled`.
+    // Reading a zero tag as "slot disabled" and skipping the check would let a
+    // spend consume a real note while publishing no enforcement tag, leaving
+    // nothing to record the note as spent in the enforcement domain. The
+    // `enabled` signal gates the slot instead.
     const { inputCommitments, enforcementNullifiers } = makeInputs();
 
     let error;

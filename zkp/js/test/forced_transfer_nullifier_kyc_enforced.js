@@ -300,8 +300,7 @@ describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
     expect(publicSignals).to.not.include(BigInt(inputCommitments[0]));
     expect(publicSignals).to.not.include(BigInt(inputCommitments[1]));
 
-    // ── receiver decryption ──
-    // Bob decrypts output 1
+    // Bob decrypts output 1.
     const bobKey = genEcdhSharedKey(Bob.privKey, ephemeralKeypair.pubKey);
     const pt1 = poseidonDecrypt(
       witness.slice(3, 7),
@@ -326,7 +325,8 @@ describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
       outputSalts[1],
     ]);
 
-    // ── arbiter decryption (14-element authority plaintext, senderPub = seized owner) ──
+    // The arbiter decrypts the 14-element authority plaintext, in which
+    // senderPub is the seized owner.
     const arbiterKey = genEcdhSharedKey(
       Arbiter.privKey,
       ephemeralKeypair.pubKey,
@@ -354,7 +354,7 @@ describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
       outputSalts[1],
     ]);
 
-    // ── enforcer decryption (same plaintext, different ECDH key) ──
+    // The enforcer recovers the same plaintext through a different ECDH key.
     const enforcerKey = genEcdhSharedKey(
       Enforcer.privKey,
       ephemeralKeypair.pubKey,

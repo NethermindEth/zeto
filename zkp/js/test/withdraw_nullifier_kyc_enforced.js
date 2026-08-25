@@ -417,11 +417,13 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
     expect(arbiterPlainText[13]).to.equal(0n); // virtual output salt
   });
 
-  it("should succeed for amount=0 withdrawal (note-washing attempt); arbiter CAN see the change output", async function () {
+  it("a zero-amount withdrawal is still legible to the arbiter", async function () {
     this.timeout(60000);
 
-    // amount=0: all value goes to the change output. This used to be a
-    // note-washing vulnerability when the arbiter had no ciphertext.
+    // With amount == 0 the whole balance moves into the change output, so the
+    // withdrawal moves no value on-chain. The arbiter's ciphertext still
+    // carries the change output, which is what stops a zero-amount withdrawal
+    // from being an unlogged transfer.
     const {
       circuitInputs,
       inputValues,
@@ -440,8 +442,7 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
     // amount == 0 is valid (value conservation: 30 == 0 + 30)
     expect(witness[pi("amount")]).to.equal(0n);
 
-    // Arbiter CAN see the change output even when amount is zero —
-    // this is the fix for the note-washing vulnerability.
+    // The arbiter can reconstruct the change output even when amount is zero.
     const arbiterKey = genEcdhSharedKey(
       Arbiter.privKey,
       ephemeralKeypair.pubKey,

@@ -128,10 +128,10 @@ describe("ComplianceStatus circuit tests", () => {
     expect(error).to.be.undefined;
   });
 
-  // This is the gadget's own gating, tested in isolation, and it is still the
-  // behaviour: ComplianceStatus skips a slot whose public key has x == 0. What
-  // changed is upstream — every wrapper now runs CheckBabyJubPublicKey, which
-  // rejects x == 0, so no such key can reach this gate from a real transaction.
+  // The gadget's own gating, tested in isolation: ComplianceStatus skips a
+  // slot whose public key has x == 0. Every wrapper runs
+  // CheckBabyJubPublicKey ahead of it, which rejects x == 0, so no such key
+  // reaches this gate from a real transaction.
   it("zero public key slot should bypass SMT check regardless of proof", async () => {
     // pubkey-zero gating: IsZero(pubKey[0]) == 1 → smtEnabled = 0 → SMTVerifier skipped.
     // The merkle proof is zero-filled: if the gating is broken, the SMTVerifier

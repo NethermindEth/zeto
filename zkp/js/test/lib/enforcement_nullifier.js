@@ -165,10 +165,11 @@ describe("EnforcementNullifier circuit tests", () => {
   });
 
   it("the domain tag is keccak256 of its documented preimage, reduced mod p", () => {
-    // P3-13 / D-2: the tag is what separates an enforcement nullifier from an
-    // owner nullifier of the same arity. Nothing derived it from the string it
-    // is documented to come from, so a typo in either would have gone unnoticed
-    // and the two nullifier families could collide.
+    // The tag is what separates an enforcement nullifier from an owner
+    // nullifier of the same arity. Deriving it here rather than restating the
+    // literal is what makes a typo in either the circuit's constant or its
+    // documented preimage visible, instead of letting the two nullifier
+    // families collide.
     const derived =
       BigInt(
         ethers.keccak256(
