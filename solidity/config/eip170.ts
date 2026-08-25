@@ -24,6 +24,20 @@ export const EIP170_EXEMPT_CONTRACTS_SET = new Set<string>(
   EIP170_EXEMPT_CONTRACTS,
 );
 
+/**
+ * The same exemptions as patterns for `hardhat-contract-sizer`, which matches
+ * each entry with `fullName.match(m)` — a substring match, so a bare
+ * "Zeto_AnonEncNullifier" silently exempts every contract whose name starts
+ * with it, including Zeto_AnonEncNullifierKycNonRepudiationEnforced. Anchoring
+ * against the `<path>:<ContractName>` form the sizer passes keeps each entry to
+ * the one contract it names.
+ *
+ * The plain-name list above stays plain: the two Sets are exact-match lookups
+ * and EIP170_EXEMPT_TOKEN_SET filters on the `Zeto_` prefix.
+ */
+export const EIP170_EXEMPT_PATTERNS: readonly string[] =
+  EIP170_EXEMPT_CONTRACTS.map((name) => `^.*:${name}$`);
+
 /** Token implementations in the exemption list (excludes standalone verifiers). */
 export const EIP170_EXEMPT_TOKEN_SET = new Set<string>(
   EIP170_EXEMPT_CONTRACTS.filter((name) => name.startsWith("Zeto_")),
