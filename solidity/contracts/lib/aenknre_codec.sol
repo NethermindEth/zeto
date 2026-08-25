@@ -16,7 +16,7 @@
 pragma solidity ^0.8.27;
 
 import {Commonlib} from "./common/common.sol";
-import {IAENKNRECodec} from "./interfaces/iaenknre_codec.sol";
+import {IAENKNRECodec} from "./interfaces/IAENKNRECodec.sol";
 
 /// @title AENKNRECodec — proof decoder and public-input assembler for AENKNR-E
 /// @dev Each build* function decodes the proof bytes (circuit-specific fields +

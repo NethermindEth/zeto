@@ -16,9 +16,9 @@
 pragma solidity ^0.8.27;
 
 import {Commonlib} from "./lib/common/common.sol";
-import {IAENKNRECodec} from "./lib/interfaces/iaenknre_codec.sol";
+import {IAENKNRECodec} from "./lib/interfaces/IAENKNRECodec.sol";
 import {IGroth16Verifier} from "./lib/interfaces/IZetoVerifier.sol";
-import {IZetoEnforcedEvents} from "./lib/interfaces/izeto_enforced.sol";
+import {IZetoEnforcedEvents} from "./lib/interfaces/IZetoEnforced.sol";
 import {IZetoInitializable} from "./lib/interfaces/IZetoInitializable.sol";
 import {AENKNREStorage} from "./lib/zeto_aenknre_storage.sol";
 import {Zeto_AnonNullifier} from "./zeto_anon_nullifier.sol";

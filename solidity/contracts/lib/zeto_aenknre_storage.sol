@@ -15,7 +15,7 @@
 // limitations under the License.
 pragma solidity ^0.8.27;
 
-import {IAENKNRECodec} from "./interfaces/iaenknre_codec.sol";
+import {IAENKNRECodec} from "./interfaces/IAENKNRECodec.sol";
 import {IGroth16Verifier} from "./interfaces/IZetoVerifier.sol";
 
 /// @title AENKNREStorage — ERC-7201 namespaced storage shared by the AENKNR-E router and facet

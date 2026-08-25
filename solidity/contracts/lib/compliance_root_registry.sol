@@ -16,7 +16,7 @@
 pragma solidity ^0.8.27;
 
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {IZetoComplianceRoot} from "./interfaces/izeto_compliance_root.sol";
+import {IZetoComplianceRoot} from "./interfaces/IZetoComplianceRoot.sol";
 
 /// @title On-chain compliance root registry for Zeto tokens
 /// @dev Stores only the compliance SMT root hash on-chain. The full
