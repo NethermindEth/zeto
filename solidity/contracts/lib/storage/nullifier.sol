@@ -24,8 +24,9 @@ import {IHasher} from "@iden3/contracts/contracts/interfaces/IHasher.sol";
 import {PoseidonUnit3L} from "@iden3/contracts/contracts/lib/Poseidon.sol";
 import {PoseidonHasher} from "@iden3/contracts/contracts/lib/hash/PoseidonHasher.sol";
 import {BaseStorage} from "./base.sol";
+import {IZetoNullifierStorageView} from "../interfaces/izeto_nullifier_storage_view.sol";
 
-contract NullifierStorage is BaseStorage {
+contract NullifierStorage is BaseStorage, IZetoNullifierStorageView {
     // used for tracking regular (unlocked) UTXOs
     // locked UTXOs are tracked in the base storage
     SmtLib.Data internal _commitmentsTree;
@@ -137,6 +138,16 @@ contract NullifierStorage is BaseStorage {
     function spent(uint256 utxo) public view override returns (UTXOStatus) {
         // by design, the contract does not know this
         return UTXOStatus.UNKNOWN;
+    }
+
+    /// @inheritdoc IZetoNullifierStorageView
+    /// @dev {spent} cannot answer this: a nullifier is not the UTXO it
+    ///      spends, so the commitments tree has nothing to look up. Tokens
+    ///      that track a second nullifier domain on top of this storage
+    ///      (e.g. the AENKNR-E enforcement nullifiers) need the owner-domain
+    ///      answer to report a combined spend status.
+    function nullifierSpent(uint256 n) external view returns (bool) {
+        return _nullifiers[n];
     }
 
     // check the existence of a UTXO in either the unlocked or locked commitments storage

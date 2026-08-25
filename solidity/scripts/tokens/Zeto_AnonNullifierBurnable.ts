@@ -52,6 +52,7 @@ export async function deployDependencies() {
         batchLockVerifier: batchLockVerifier.target,
         burnVerifier: burnVerifier.target,
         batchBurnVerifier: batchBurnVerifier.target,
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     ],
     libraries: withZetoLockableLib(

@@ -163,7 +163,7 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
 
     function _doLockTransition(
         ZetoCreateLockArgs calldata args
-    ) internal override {
+    ) internal virtual override {
         validateTransactionProposal(
             args.inputs,
             args.outputs,
@@ -215,7 +215,7 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
         uint256[] calldata outputs,
         bytes calldata proof,
         bytes calldata /* data */
-    ) internal override {
+    ) internal virtual override {
         validateTransactionProposal(
             lockedInputs,
             outputs,
@@ -266,7 +266,7 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
         uint256[] calldata outputs,
         bytes calldata proof,
         bytes calldata data
-    ) public nonReentrant {
+    ) public virtual nonReentrant {
         // ---- Checks ----
         validateOutputs(outputs);
 
@@ -296,9 +296,21 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
         _mint(outputs, data);
 
         // ---- Interactions ----
-        // SafeERC20 handles non-standard tokens that return no value on
-        // success and reverts cleanly when the underlying call fails or
-        // returns false.
+        _collectDeposit(amount);
+    }
+
+    /**
+     * @dev Move `amount` of the backing ERC20 from the depositor into this
+     *      contract, as the Interactions step of {deposit}.
+     *
+     *      Split out of {deposit} as an overridable seam: SafeERC20 reports
+     *      that the call succeeded but not how much actually arrived, and a
+     *      token whose commitments must stay backed 1:1 -- the enforced
+     *      variants -- needs to assert the credited delta as well. Tokens
+     *      that treat the backing asset as trusted (it is bound once, by the
+     *      owner, through {setERC20}) keep the cheaper transfer.
+     */
+    function _collectDeposit(uint256 amount) internal virtual {
         ZetoFungibleStorage.layout().erc20Token.safeTransferFrom(
             msg.sender,
             address(this),
@@ -324,7 +336,7 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
         uint256 output,
         bytes calldata proof,
         bytes calldata data
-    ) public nonReentrant {
+    ) public virtual nonReentrant {
         uint256[] memory outputs = new uint256[](1);
         outputs[0] = output;
         uint256[] memory lockedOutputs;
