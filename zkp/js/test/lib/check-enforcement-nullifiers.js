@@ -6,24 +6,11 @@ const {
   genEcdhSharedKey,
   formatPrivKeyForBabyJub,
 } = require("maci-crypto");
-const { Poseidon, newSalt } = require("../../index.js");
+const { Poseidon, newSalt, enforcementNullifier } = require("../../index.js");
 
 const poseidon2 = Poseidon.poseidon2;
 const poseidon3 = Poseidon.poseidon3;
 const poseidon4 = Poseidon.poseidon4;
-
-const ENF_DOMAIN_TAG =
-  21455947405572920533869930548514094044543253524099188107381343679564123236615n;
-
-function computeEnforcementNullifier(
-  ecdhPrivKey,
-  counterpartyPubKey,
-  commitment,
-) {
-  const shared = genEcdhSharedKey(ecdhPrivKey, counterpartyPubKey);
-  const k0 = poseidon2([shared[0], shared[1]]);
-  return poseidon3([commitment, k0, ENF_DOMAIN_TAG]);
-}
 
 describe("CheckEnforcementNullifiers circuit tests", () => {
   let circuit;
@@ -51,8 +38,8 @@ describe("CheckEnforcementNullifiers circuit tests", () => {
   function makeInputs() {
     const c1 = poseidon4([100n, newSalt(), ...owner.pubKey]);
     const c2 = poseidon4([200n, newSalt(), ...owner.pubKey]);
-    const n1 = computeEnforcementNullifier(owner.privKey, enforcer.pubKey, c1);
-    const n2 = computeEnforcementNullifier(owner.privKey, enforcer.pubKey, c2);
+    const n1 = enforcementNullifier(owner.privKey, enforcer.pubKey, c1);
+    const n2 = enforcementNullifier(owner.privKey, enforcer.pubKey, c2);
     return {
       inputCommitments: [c1, c2],
       enforcementNullifiers: [n1, n2],

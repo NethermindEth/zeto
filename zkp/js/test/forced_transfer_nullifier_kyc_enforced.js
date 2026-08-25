@@ -19,6 +19,8 @@ const {
   newSalt,
   newEncryptionNonce,
   poseidonDecrypt,
+  enforcementNullifier,
+  ENFORCEMENT_NULLIFIER_DOMAIN_TAG,
 } = require("../index.js");
 
 const SMT_HEIGHT_UTXO = 32;
@@ -30,19 +32,6 @@ const poseidonHash3 = Poseidon.poseidon3;
 
 const STATUS_ACTIVE = 1n;
 const STATUS_FROZEN = 2n;
-
-const ENF_DOMAIN_TAG =
-  21455947405572920533869930548514094044543253524099188107381343679564123236615n;
-
-function computeEnforcementNullifier(
-  ecdhPrivKey,
-  counterpartyPubKey,
-  commitment,
-) {
-  const shared = genEcdhSharedKey(ecdhPrivKey, counterpartyPubKey);
-  const k0 = poseidonHash2([shared[0], shared[1]]);
-  return poseidonHash3([commitment, k0, ENF_DOMAIN_TAG]);
-}
 
 describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
   let circuit;
@@ -155,7 +144,7 @@ describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
 
     // enforcement nullifiers: ECDH(enforcerPriv, seizedOwnerPub=Alice)
     const enforcementNullifiers = inputCommitments.map((c) =>
-      computeEnforcementNullifier(Enforcer.privKey, seizedOwner.pubKey, c),
+      enforcementNullifier(Enforcer.privKey, seizedOwner.pubKey, c),
     );
 
     const outputSalts = [newSalt(), newSalt()];
@@ -526,7 +515,12 @@ describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
     const { circuitInputs } = await buildInputs(smtCompMain, { seizedOwner });
     const publiclyDerivableK0 = poseidonHash2(Enforcer.pubKey);
     circuitInputs.enforcementNullifiers = circuitInputs.inputCommitments.map(
-      (c) => poseidonHash3([c, publiclyDerivableK0, ENF_DOMAIN_TAG]),
+      (c) =>
+        poseidonHash3([
+          c,
+          publiclyDerivableK0,
+          ENFORCEMENT_NULLIFIER_DOMAIN_TAG,
+        ]),
     );
 
     await rejects(circuit, circuitInputs);

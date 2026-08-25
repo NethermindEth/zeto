@@ -7,32 +7,21 @@ const {
   formatPrivKeyForBabyJub,
 } = require("maci-crypto");
 const { ethers } = require("ethers");
-const { Poseidon, newSalt } = require("../../index.js");
+const {
+  Poseidon,
+  newSalt,
+  enforcementNullifier,
+  ENFORCEMENT_NULLIFIER_DOMAIN_TAG,
+  ENFORCEMENT_NULLIFIER_DOMAIN_TAG_PREIMAGE,
+} = require("../../index.js");
 
 const poseidon2 = Poseidon.poseidon2;
 const poseidon3 = Poseidon.poseidon3;
 const poseidon4 = Poseidon.poseidon4;
 
-// The domain tag the circuit bakes in, and the preimage it is documented to come
-// from. Both are written out so the test can prove they agree — a literal copied
-// between a circuit and a test proves nothing about either.
-const ENF_DOMAIN_TAG_PREIMAGE = "zeto.enforcement.nullifier.v1";
-const ENF_DOMAIN_TAG =
-  21455947405572920533869930548514094044543253524099188107381343679564123236615n;
 // BN254 scalar field modulus.
 const FIELD_P =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-
-// Reproduce the in-circuit derivation in JS.
-function computeEnforcementNullifier(
-  ecdhPrivKey,
-  counterpartyPubKey,
-  commitment,
-) {
-  const shared = genEcdhSharedKey(ecdhPrivKey, counterpartyPubKey);
-  const k0 = poseidon2([shared[0], shared[1]]);
-  return poseidon3([commitment, k0, ENF_DOMAIN_TAG]);
-}
 
 describe("EnforcementNullifier circuit tests", () => {
   let circuit;
@@ -69,7 +58,7 @@ describe("EnforcementNullifier circuit tests", () => {
       true,
     );
 
-    const expected = computeEnforcementNullifier(
+    const expected = enforcementNullifier(
       owner.privKey,
       enforcer.pubKey,
       commitment,
@@ -148,10 +137,10 @@ describe("EnforcementNullifier circuit tests", () => {
     const k0 = poseidon2([shared[0], shared[1]]);
     const wrongTagNullifier = poseidon3([commitment, k0, 0n]);
 
-    // The circuit output (using ENF_DOMAIN_TAG) must differ from the wrong-tag value
+    // The circuit output (using ENFORCEMENT_NULLIFIER_DOMAIN_TAG) must differ from the wrong-tag value
     expect(witness[1]).to.not.equal(wrongTagNullifier);
     // And it must match the correctly-tagged JS computation
-    const correct = computeEnforcementNullifier(
+    const correct = enforcementNullifier(
       owner.privKey,
       enforcer.pubKey,
       commitment,
@@ -165,8 +154,11 @@ describe("EnforcementNullifier circuit tests", () => {
     // is documented to come from, so a typo in either would have gone unnoticed
     // and the two nullifier families could collide.
     const derived =
-      BigInt(ethers.keccak256(ethers.toUtf8Bytes(ENF_DOMAIN_TAG_PREIMAGE))) %
-      FIELD_P;
-    expect(derived).to.equal(ENF_DOMAIN_TAG);
+      BigInt(
+        ethers.keccak256(
+          ethers.toUtf8Bytes(ENFORCEMENT_NULLIFIER_DOMAIN_TAG_PREIMAGE),
+        ),
+      ) % FIELD_P;
+    expect(derived).to.equal(ENFORCEMENT_NULLIFIER_DOMAIN_TAG);
   });
 });

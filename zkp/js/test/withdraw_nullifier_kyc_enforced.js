@@ -19,6 +19,7 @@ const {
   newSalt,
   newEncryptionNonce,
   poseidonDecrypt,
+  enforcementNullifier,
 } = require("../index.js");
 
 const SMT_HEIGHT_UTXO = 32;
@@ -31,23 +32,10 @@ const poseidonHash3 = Poseidon.poseidon3;
 const STATUS_ACTIVE = 1n;
 const STATUS_FROZEN = 2n;
 
-const ENF_DOMAIN_TAG =
-  21455947405572920533869930548514094044543253524099188107381343679564123236615n;
-
 // The contract injects the withdrawal recipient as `uint256(uint160(msg.sender))`
 // and the proof binds it, so an observer cannot copy a pending withdrawal and
 // redirect the payout. The circuit places no other statement on the value.
 const RECIPIENT = BigInt("0x1234567890123456789012345678901234567890");
-
-function computeEnforcementNullifier(
-  ecdhPrivKey,
-  counterpartyPubKey,
-  commitment,
-) {
-  const shared = genEcdhSharedKey(ecdhPrivKey, counterpartyPubKey);
-  const k0 = poseidonHash2([shared[0], shared[1]]);
-  return poseidonHash3([commitment, k0, ENF_DOMAIN_TAG]);
-}
 
 describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
   let circuit;
@@ -162,8 +150,8 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
     ];
 
     const enforcementNullifiers = [
-      computeEnforcementNullifier(Alice.privKey, Enforcer.pubKey, input1),
-      computeEnforcementNullifier(Alice.privKey, Enforcer.pubKey, input2),
+      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input1),
+      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input2),
     ];
 
     await smtUtxo.add(input1, input1);
@@ -433,8 +421,8 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
       poseidonHash3([BigInt(inputValues[1]), salt2, senderPrivateKey]),
     ];
     const enforcementNullifiers = [
-      computeEnforcementNullifier(Alice.privKey, Enforcer.pubKey, input1),
-      computeEnforcementNullifier(Alice.privKey, Enforcer.pubKey, input2),
+      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input1),
+      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input2),
     ];
 
     await smtUtxo.add(input1, input1);

@@ -19,6 +19,7 @@ const {
   newSalt,
   newEncryptionNonce,
   poseidonDecrypt,
+  enforcementNullifier,
 } = require("../index.js");
 
 const SMT_HEIGHT_UTXO = 32;
@@ -30,19 +31,6 @@ const poseidonHash3 = Poseidon.poseidon3;
 
 const STATUS_ACTIVE = 1n;
 const STATUS_FROZEN = 2n;
-
-const ENF_DOMAIN_TAG =
-  21455947405572920533869930548514094044543253524099188107381343679564123236615n;
-
-function computeEnforcementNullifier(
-  ecdhPrivKey,
-  counterpartyPubKey,
-  commitment,
-) {
-  const shared = genEcdhSharedKey(ecdhPrivKey, counterpartyPubKey);
-  const k0 = poseidonHash2([shared[0], shared[1]]);
-  return poseidonHash3([commitment, k0, ENF_DOMAIN_TAG]);
-}
 
 describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-repudiation, and enforcement nullifiers", () => {
   let circuit;
@@ -190,12 +178,12 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
     const ownerNullifiers = [ownerNullifier1, ownerNullifier2];
 
     // create the enforcement nullifiers via ECDH(ownerPriv, enforcerPub)
-    const enfNullifier1 = computeEnforcementNullifier(
+    const enfNullifier1 = enforcementNullifier(
       Alice.privKey,
       Enforcer.pubKey,
       input1,
     );
-    const enfNullifier2 = computeEnforcementNullifier(
+    const enfNullifier2 = enforcementNullifier(
       Alice.privKey,
       Enforcer.pubKey,
       input2,
@@ -546,8 +534,8 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
 
     // create the enforcement nullifiers
     const enforcementNullifiers = [
-      computeEnforcementNullifier(Alice.privKey, Enforcer.pubKey, input1),
-      computeEnforcementNullifier(Alice.privKey, Enforcer.pubKey, input2),
+      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input1),
+      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input2),
     ];
 
     // calculate the root of the UTXO SMT
