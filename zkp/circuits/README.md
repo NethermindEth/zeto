@@ -13,6 +13,10 @@ The following circuits are included:
 - `anon_enc_nullifier_non_repudiation.circom`, `anon_enc_nullifier_non_repudiation_batch.circom`: fungible tokens with anonymity and encrypted secrets, with history masking using nullifiers, and encrypted secrets for an authority for non-repudiation
 - `check_hashes_value.circom`, `check_hashes_value_batch.circom`: used for verifying deposit calls in a fungible token implementation
 - `check_inputs_outputs_value.circom`, `check_inputs_outputs_value_batch.circom`: used for verifying withdraw calls in a fungible token implementation
+- `anon_enc_nullifier_kyc_non_repudiation_enforced.circom`: fungible tokens with anonymity and encrypted secrets, history masking using nullifiers, KYC with privacy, encrypted secrets for an authority for non-repudiation, and a second nullifier domain that binds every spent note to an enforcer key
+- `deposit_kyc_non_repudiation_enforced.circom`: used for verifying deposit calls into an enforced fungible token, with KYC and authority ciphertexts
+- `withdraw_nullifier_kyc_enforced.circom`: used for verifying withdraw calls out of an enforced fungible token, with KYC, history masking using nullifiers and the enforcement nullifier domain
+- `forced_transfer_nullifier_kyc_enforced.circom`: lets the enforcer of an enforced fungible token move a note without the owner's key, proving the same KYC and compliance statements a transfer proves
 
 > the circuits with a `_batch` suffix in the name has the same computation logic as the circuit without the suffix. The only difference is the `_batch` circuit supports input and output array of size 10, rather than 2.
 
@@ -53,13 +57,18 @@ To use the circuits in a ZKP application, 3 types of artifacts are needed:
 Zeto provides an artifact generation program, `gen.js`, that can generate the above artifacts. Note that it does NOT perform a trusted setup, this step should be conducted as a coordinated ceremony by the deployer of the ZKP application if groth16 is used. It generates proving keys for **TESTING PURPOSES ONLY**.
 
 ```console
+npm i
+npm run gen
+```
+
+`CIRCUITS_ROOT` and `PROVING_KEYS_ROOT` default to `zkp/artifacts` and
+`PTAU_DOWNLOAD_PATH` to `zkp/ptau`, and `gen.js` creates them. Set them only to
+put the artifacts somewhere else:
+
+```console
 export CIRCUITS_ROOT="$HOME/circuits"
 export PROVING_KEYS_ROOT="$HOME/proving-keys"
 export PTAU_DOWNLOAD_PATH="$HOME/ptaus"
-mkdir -p $PROVING_KEYS_ROOT $PTAU_DOWNLOAD_PATH $CIRCUITS_ROOT
-
-npm i
-npm run gen
 ```
 
 **Run `npm run gen -- -c $circuit` to generate artifacts for a single circuit**
