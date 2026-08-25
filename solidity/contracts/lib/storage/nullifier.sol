@@ -24,7 +24,7 @@ import {IHasher} from "@iden3/contracts/contracts/interfaces/IHasher.sol";
 import {PoseidonUnit3L} from "@iden3/contracts/contracts/lib/Poseidon.sol";
 import {PoseidonHasher} from "@iden3/contracts/contracts/lib/hash/PoseidonHasher.sol";
 import {BaseStorage} from "./base.sol";
-import {IZetoNullifierStorageView} from "../interfaces/izeto_nullifier_storage_view.sol";
+import {IZetoNullifierStorageView} from "../interfaces/IZetoNullifierStorageView.sol";
 
 contract NullifierStorage is BaseStorage, IZetoNullifierStorageView {
     // used for tracking regular (unlocked) UTXOs
