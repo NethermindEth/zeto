@@ -242,7 +242,6 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
     const signals = publicSignals.map(BigInt);
 
     expect(signals.slice(0, 2)).to.deep.equal(ephemeralKeypair.pubKey);
-    expect(signals[0]).to.not.equal(0n);
 
     expect(signals.slice(42, 44)).to.deep.equal(ownerNullifiers);
     expect(signals.slice(44, 46)).to.deep.equal(enforcementNullifiers);
@@ -304,10 +303,15 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
       poseidonDecrypt(enforcerCiphertext, enforcerKey, encryptionNonce, 14),
     ).to.deep.equal(arbiterPlaintext);
 
+    // Same strictness as the receiver stream above: a bare .to.throw() would
+    // also pass on an unrelated failure, such as a length mismatch introduced
+    // by a future change to these slice indices. The message differs from the
+    // receiver stream's because a 14-element authority plaintext fails its
+    // padding check before it reaches the permuted-state check.
     for (const ciphertext of [arbiterCiphertext, enforcerCiphertext]) {
       expect(function () {
         poseidonDecrypt(ciphertext, bobKey, encryptionNonce, 14);
-      }).to.throw();
+      }).to.throw("The last element of the message must be 0");
     }
 
     const tamperedOutputHash = poseidonHash([

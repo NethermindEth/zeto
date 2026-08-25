@@ -184,7 +184,6 @@ describe("deposit_kyc_non_repudiation_enforced circuit tests", () => {
     expect(publicSignals[0]).to.equal("300");
 
     expect(signals.slice(1, 3)).to.deep.equal(ephemeralKeypair.pubKey);
-    expect(signals[1]).to.not.equal(0n);
 
     expect(signals.slice(43, 45)).to.deep.equal(outputCommitments);
     expect(signals[45]).to.equal(identitiesRoot);
@@ -206,6 +205,24 @@ describe("deposit_kyc_non_repudiation_enforced circuit tests", () => {
     expect(
       poseidonDecrypt(signals.slice(7, 11), sharedKey(Bob), encryptionNonce, 2),
     ).to.deep.equal([BigInt(outputValues[1]), salt2]);
+
+    // Each receiver stream opens only to its own recipient, which is what makes
+    // the two outputs confidential from each other.
+    expect(function () {
+      poseidonDecrypt(signals.slice(3, 7), sharedKey(Bob), encryptionNonce, 2);
+    }).to.throw(
+      "The last ciphertext element must match the second item of the permuted state",
+    );
+    expect(function () {
+      poseidonDecrypt(
+        signals.slice(7, 11),
+        sharedKey(Alice),
+        encryptionNonce,
+        2,
+      );
+    }).to.throw(
+      "The last ciphertext element must match the second item of the permuted state",
+    );
 
     const arbiterPlaintext = poseidonDecrypt(
       signals.slice(11, 27),

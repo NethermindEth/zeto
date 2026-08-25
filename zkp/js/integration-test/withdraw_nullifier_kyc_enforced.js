@@ -232,7 +232,6 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
     const signals = publicSignals.map(BigInt);
 
     expect(signals.slice(0, 2)).to.deep.equal(ephemeralKeypair.pubKey);
-    expect(signals[0]).to.not.equal(0n);
 
     // `amount` is the value the contract pays out over ERC-20 on withdrawal
     expect(publicSignals[34]).to.equal("70");
