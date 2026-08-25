@@ -80,6 +80,39 @@ const ENF_DOMAIN_TAG =
 
 const PROOF_TUPLE = "tuple(uint256[2] pA, uint256[2][2] pB, uint256[2] pC)";
 
+// A structurally valid transfer proof blob whose every field is zero. Used
+// where the call must be refused before the proof is ever looked at, so the
+// contents do not matter but the encoding does.
+const DUMMY_TRANSFER_PROOF = new AbiCoder().encode(
+  [
+    "uint256",
+    "uint256[]",
+    "uint256",
+    "uint256[2]",
+    "uint256[]",
+    "uint256[]",
+    "uint256[]",
+    PROOF_TUPLE,
+  ],
+  [
+    0,
+    [0, 0],
+    0,
+    [0, 0],
+    [0],
+    [0],
+    [0],
+    {
+      pA: [0, 0],
+      pB: [
+        [0, 0],
+        [0, 0],
+      ],
+      pC: [0, 0],
+    },
+  ],
+);
+
 // ── SMT helpers ──
 
 async function addComplianceLeaf(
@@ -614,6 +647,16 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       ).wait();
     }
 
+    // Both authorities are configured here rather than by whichever block runs
+    // first, so no later block depends on the order the file happens to be in.
+    // The one case that needs them unset deploys its own token.
+    await (
+      await zeto.connect(deployer).setEnforcer(Enforcer.babyJubPublicKey)
+    ).wait();
+    await (
+      await zeto.connect(deployer).setArbiter(Arbiter.babyJubPublicKey)
+    ).wait();
+
     // Local KYC SMT mirror
     smtKyc = new Merkletree(
       new InMemoryDB(str2Bytes("kyc")),
@@ -702,74 +745,52 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
   // ── deployment and admin ──
 
   describe("deployment and admin", function () {
-    it("transfer reverts with EnforcerNotSet before setEnforcer", async function () {
-      const dummyProof = new AbiCoder().encode(
-        [
-          "uint256",
-          "uint256[]",
-          "uint256",
-          "uint256[2]",
-          "uint256[]",
-          "uint256[]",
-          "uint256[]",
-          PROOF_TUPLE,
-        ],
-        [
-          0,
-          [0, 0],
-          0,
-          [0, 0],
-          [0],
-          [0],
-          [0],
-          {
-            pA: [0, 0],
-            pB: [
-              [0, 0],
-              [0, 0],
-            ],
-            pC: [0, 0],
-          },
-        ],
+    // The shared token has both authorities set in the top-level before, so
+    // the cases about establishing them run against a token of their own
+    // rather than depending on this block running before the rest of the file.
+    async function freshToken() {
+      const { deployer: d, zeto: token } = await deployZeto(
+        "Zeto_AnonEncNullifierKycNonRepudiationEnforced",
       );
+      return { d, token };
+    }
+
+    it("transfer reverts with EnforcerNotSet before setEnforcer", async function () {
+      const { token } = await freshToken();
       await expect(
-        zeto.connect(Alice.signer).transfer([1], [1], dummyProof, "0x"),
-      ).to.be.revertedWithCustomError(zeto, "EnforcerNotSet");
+        token
+          .connect(Alice.signer)
+          .transfer([1], [1], DUMMY_TRANSFER_PROOF, "0x"),
+      ).to.be.revertedWithCustomError(token, "EnforcerNotSet");
     });
 
     it("setEnforcer sets key and emits event; second call reverts", async function () {
-      const tx = await zeto
-        .connect(deployer)
-        .setEnforcer(Enforcer.babyJubPublicKey);
-      await expect(tx)
-        .to.emit(zeto, "EnforcerSet")
+      const { d, token } = await freshToken();
+      await expect(token.connect(d).setEnforcer(Enforcer.babyJubPublicKey))
+        .to.emit(token, "EnforcerSet")
         .withArgs(Enforcer.babyJubPublicKey);
-      const key = await zeto.getEnforcer();
+      const key = await token.getEnforcer();
       expect(key[0]).to.equal(Enforcer.babyJubPublicKey[0]);
       expect(key[1]).to.equal(Enforcer.babyJubPublicKey[1]);
 
       await expect(
-        zeto.connect(deployer).setEnforcer(Enforcer.babyJubPublicKey),
-      ).to.be.revertedWithCustomError(zeto, "EnforcerAlreadySet");
+        token.connect(d).setEnforcer(Enforcer.babyJubPublicKey),
+      ).to.be.revertedWithCustomError(token, "EnforcerAlreadySet");
     });
 
     it("setArbiter rotates key and increments keyId", async function () {
-      await expect(zeto.connect(deployer).setArbiter(Arbiter.babyJubPublicKey))
-        .to.emit(zeto, "ArbiterUpdated")
+      const { d, token } = await freshToken();
+      await expect(token.connect(d).setArbiter(Arbiter.babyJubPublicKey))
+        .to.emit(token, "ArbiterUpdated")
         .withArgs(Arbiter.babyJubPublicKey, 1);
-      expect(await zeto.getArbiterKeyId()).to.equal(1);
+      expect(await token.getArbiterKeyId()).to.equal(1);
 
       // Rotate — keyId increments
       const tmpArbiter = await newUser((await ethers.getSigners())[7]);
-      await expect(
-        zeto.connect(deployer).setArbiter(tmpArbiter.babyJubPublicKey),
-      )
-        .to.emit(zeto, "ArbiterUpdated")
+      await expect(token.connect(d).setArbiter(tmpArbiter.babyJubPublicKey))
+        .to.emit(token, "ArbiterUpdated")
         .withArgs(tmpArbiter.babyJubPublicKey, 2);
-      expect(await zeto.getArbiterKeyId()).to.equal(2);
-
-      // Restore the arbiter the rest of the suite expects
-      await zeto.connect(deployer).setArbiter(Arbiter.babyJubPublicKey);
+      expect(await token.getArbiterKeyId()).to.equal(2);
     });
 
     it("setComplianceRoot updates root and emits event", async function () {
@@ -871,35 +892,6 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     // STATICCALLs the codec, and both of those succeed with empty return data
     // against an account that holds no code, so a codeless target is not
     // reported as an error anywhere downstream.
-    const dummyProof = new AbiCoder().encode(
-      [
-        "uint256",
-        "uint256[]",
-        "uint256",
-        "uint256[2]",
-        "uint256[]",
-        "uint256[]",
-        "uint256[]",
-        PROOF_TUPLE,
-      ],
-      [
-        0,
-        [0, 0],
-        0,
-        [0, 0],
-        [0],
-        [0],
-        [0],
-        {
-          pA: [0, 0],
-          pB: [
-            [0, 0],
-            [0, 0],
-          ],
-          pC: [0, 0],
-        },
-      ],
-    );
 
     /** An externally owned account — a non-zero address that holds no code. */
     async function eoaAddress(): Promise<string> {
@@ -958,7 +950,9 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       // would produce a status-1 receipt with no event and no state change,
       // which a domain plugin reads as a completed transfer.
       await expect(
-        fresh.connect(Alice.signer).transfer([1], [1], dummyProof, "0x"),
+        fresh
+          .connect(Alice.signer)
+          .transfer([1], [1], DUMMY_TRANSFER_PROOF, "0x"),
       ).to.be.reverted;
     });
 
@@ -1014,6 +1008,32 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
           forcedTransferVerifier: ethers.ZeroAddress,
         } as any),
       ).to.be.revertedWithCustomError(facet, "InitializationDisabled");
+    });
+
+    // Owner gating was tested for forcedTransfer and for nothing else, while
+    // setEnforcer is irreversible and setCodec is one-shot.
+    it("the configuration setters are owner-only", async function () {
+      const { d, router, codec, transferFacet } =
+        await deployUnconfiguredRouter();
+      const stranger = Alice.signer;
+      const strangerAddr = await stranger.getAddress();
+
+      for (const call of [
+        () => router.connect(stranger).setCodec(codec),
+        () => router.connect(stranger).setTransferFacet(transferFacet),
+        () => router.connect(stranger).setEnforcer(Enforcer.babyJubPublicKey),
+        () => router.connect(stranger).setArbiter(Arbiter.babyJubPublicKey),
+      ]) {
+        await expect(call())
+          .to.be.revertedWithCustomError(router, "OwnableUnauthorizedAccount")
+          .withArgs(strangerAddr);
+      }
+
+      // None of the one-shot slots was consumed by the refused calls.
+      await (await router.connect(d).setCodec(codec)).wait();
+      await (
+        await router.connect(d).setEnforcer(Enforcer.babyJubPublicKey)
+      ).wait();
     });
 
     it("both setters accept a deployed contract", async function () {
@@ -1471,9 +1491,13 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     smts: Merkletree[],
     utxos: UTXO[],
   ) {
+    // The enforced circuits are 2-in / 2-out, so mint takes exactly two
+    // commitments. Asserting rather than slicing means a third one is a test
+    // error instead of a note that quietly never exists.
+    expect(utxos.length).to.be.at.most(2);
     const hashes: bigint[] = utxos.map((u) => BigInt(u.hash as any));
     while (hashes.length < 2) hashes.push(0n);
-    await (await token.connect(owner).mint(hashes.slice(0, 2), "0x")).wait();
+    await (await token.connect(owner).mint(hashes, "0x")).wait();
     await trackUtxos(smts, ...utxos);
   }
 
@@ -2231,21 +2255,6 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       };
     };
 
-    before(async function () {
-      // The suite configures the authorities in the "deployment and admin"
-      // block. Re-apply them here so this block also runs standalone.
-      if ((await zeto.getEnforcer())[0] === 0n) {
-        await (
-          await zeto.connect(deployer).setEnforcer(Enforcer.babyJubPublicKey)
-        ).wait();
-      }
-      if ((await zeto.getArbiterKeyId()) === 0n) {
-        await (
-          await zeto.connect(deployer).setArbiter(Arbiter.babyJubPublicKey)
-        ).wait();
-      }
-    });
-
     const transferBlob = async (enfN: bigint[]) =>
       encodeTransferProof(
         await zeto.getRoot(),
@@ -2480,19 +2489,6 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     before(async function () {
       codec = await (await ethers.getContractFactory("AENKNRECodec")).deploy();
       await codec.waitForDeployment();
-
-      // The suite configures the authorities in the "deployment and admin" block.
-      // Re-apply them here so this block also runs standalone under --grep.
-      if ((await zeto.getEnforcer())[0] === 0n) {
-        await (
-          await zeto.connect(deployer).setEnforcer(Enforcer.babyJubPublicKey)
-        ).wait();
-      }
-      if ((await zeto.getArbiterKeyId()) === 0n) {
-        await (
-          await zeto.connect(deployer).setArbiter(Arbiter.babyJubPublicKey)
-        ).wait();
-      }
     });
 
     // Canonical arities, cross-checked against each circuit's `main { public [...] }`
@@ -3161,16 +3157,6 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     });
 
     before(async function () {
-      if ((await zeto.getEnforcer())[0] === 0n) {
-        await (
-          await zeto.connect(deployer).setEnforcer(Enforcer.babyJubPublicKey)
-        ).wait();
-      }
-      if ((await zeto.getArbiterKeyId()) === 0n) {
-        await (
-          await zeto.connect(deployer).setArbiter(Arbiter.babyJubPublicKey)
-        ).wait();
-      }
       const activeRoot = (
         await complianceProof(smtCompAllActive, Alice.babyJubPublicKey)
       ).root;
@@ -3520,16 +3506,6 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
 
   describe("withdraw recipient binding", function () {
     before(async function () {
-      if ((await zeto.getEnforcer())[0] === 0n) {
-        await (
-          await zeto.connect(deployer).setEnforcer(Enforcer.babyJubPublicKey)
-        ).wait();
-      }
-      if ((await zeto.getArbiterKeyId()) === 0n) {
-        await (
-          await zeto.connect(deployer).setArbiter(Arbiter.babyJubPublicKey)
-        ).wait();
-      }
       const activeRoot = (
         await complianceProof(smtCompAllActive, Alice.babyJubPublicKey)
       ).root;
@@ -3668,43 +3644,13 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     const TX_ID = ethers.zeroPadValue("0x01", 32);
     const NO_LOCK = ethers.zeroPadValue("0x02", 32);
 
-    const dummyProof = new AbiCoder().encode(
-      [
-        "uint256",
-        "uint256[]",
-        "uint256",
-        "uint256[2]",
-        "uint256[]",
-        "uint256[]",
-        "uint256[]",
-        PROOF_TUPLE,
-      ],
-      [
-        0,
-        [0, 0],
-        0,
-        [0, 0],
-        [0],
-        [0],
-        [0],
-        {
-          pA: [0, 0],
-          pB: [
-            [0, 0],
-            [0, 0],
-          ],
-          pC: [0, 0],
-        },
-      ],
-    );
-
     const createArgs = new AbiCoder().encode(
       [CREATE_LOCK_ARGS],
-      [[TX_ID, [1], [2], [3], dummyProof]],
+      [[TX_ID, [1], [2], [3], DUMMY_TRANSFER_PROOF]],
     );
     const spendArgs = new AbiCoder().encode(
       [SPEND_LOCK_ARGS],
-      [[TX_ID, [3], [2], dummyProof, "0x"]],
+      [[TX_ID, [3], [2], DUMMY_TRANSFER_PROOF, "0x"]],
     );
     const txIdArgs = new AbiCoder().encode(["tuple(bytes32 txId)"], [[TX_ID]]);
 
@@ -3766,7 +3712,14 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       await expect(
         zeto
           .connect(Alice.signer)
-          .zetoLockTransferLocked(NO_LOCK, [1], [2], [3], dummyProof, "0x"),
+          .zetoLockTransferLocked(
+            NO_LOCK,
+            [1],
+            [2],
+            [3],
+            DUMMY_TRANSFER_PROOF,
+            "0x",
+          ),
       )
         .to.be.revertedWithCustomError(zeto, "NotSelf")
         .withArgs(Alice.ethAddress);
