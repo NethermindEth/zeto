@@ -259,6 +259,11 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
      * @param proof The proof of the deposit.
      * @param data Additional data to be passed to the deposit function.
      *
+     *      Overrides must keep `nonReentrant` and the checks-effects-
+     *      interactions ordering documented above. A router that forwards
+     *      this call to a facet by DELEGATECALL satisfies both, because the
+     *      guard is evaluated against the router's own storage.
+     *
      * Emits a {UTXOMint} event.
      */
     function deposit(
@@ -300,15 +305,16 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
     }
 
     /**
-     * @dev Move `amount` of the backing ERC20 from the depositor into this
+     * @dev Moves `amount` of the backing ERC20 from the depositor into this
      *      contract, as the Interactions step of {deposit}.
      *
-     *      Split out of {deposit} as an overridable seam: SafeERC20 reports
-     *      that the call succeeded but not how much actually arrived, and a
-     *      token whose commitments must stay backed 1:1 -- the enforced
-     *      variants -- needs to assert the credited delta as well. Tokens
-     *      that treat the backing asset as trusted (it is bound once, by the
-     *      owner, through {setERC20}) keep the cheaper transfer.
+     *      Overridable so that a token whose commitments must stay backed
+     *      one-for-one can also assert how much value arrived: SafeERC20
+     *      reports that the transfer succeeded, not the amount credited.
+     *      A token that treats its backing asset as trusted, which {setERC20}
+     *      supports by binding the pairing once, keeps the cheaper transfer.
+     *
+     * @param amount The amount of the backing ERC20 to pull from the caller.
      */
     function _collectDeposit(uint256 amount) internal virtual {
         ZetoFungibleStorage.layout().erc20Token.safeTransferFrom(
@@ -327,6 +333,11 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
      * @param proof The proof of the withdrawal.
      * @param data Additional data to be passed to the withdrawal
      *      function.
+     *
+     *      Overrides must keep `nonReentrant` and the checks-effects-
+     *      interactions ordering documented above. A router that forwards
+     *      this call to a facet by DELEGATECALL satisfies both, because the
+     *      guard is evaluated against the router's own storage.
      *
      * Emits a {UTXOWithdraw} event.
      */

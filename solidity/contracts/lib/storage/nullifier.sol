@@ -141,11 +141,11 @@ contract NullifierStorage is BaseStorage, IZetoNullifierStorageView {
     }
 
     /// @inheritdoc IZetoNullifierStorageView
-    /// @dev {spent} cannot answer this: a nullifier is not the UTXO it
-    ///      spends, so the commitments tree has nothing to look up. Tokens
-    ///      that track a second nullifier domain on top of this storage
-    ///      (e.g. the AENKNR-E enforcement nullifiers) need the owner-domain
-    ///      answer to report a combined spend status.
+    /// @dev {spent} cannot answer this, because a nullifier is not the UTXO
+    ///      it spends and the commitments tree therefore has nothing to look
+    ///      up. A token that tracks a second nullifier domain on top of this
+    ///      storage, such as the AENKNR-E enforcement nullifiers, combines
+    ///      this owner-domain answer with its own to report a spend status.
     function nullifierSpent(uint256 n) external view returns (bool) {
         return _nullifiers[n];
     }

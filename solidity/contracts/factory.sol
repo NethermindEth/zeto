@@ -94,9 +94,9 @@ contract ZetoTokenFactory is Ownable {
         return instance;
     }
 
-    /// @dev For AENKNR-E and future enforced variants. Requires transfer,
-    ///   deposit, withdraw, and forcedTransfer verifiers. Does NOT require
-    ///   batch verifiers (enforced variants are non-batch only).
+    /// @dev Deploys an enforced fungible token, which needs the transfer,
+    ///   deposit, withdraw, and forced-transfer verifiers. It does not need
+    ///   the batch verifiers, because the enforced circuits are non-batch.
     function deployZetoEnforcedFungibleToken(
         string calldata name,
         string calldata symbol,
