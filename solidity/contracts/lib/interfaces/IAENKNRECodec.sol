@@ -38,6 +38,7 @@ interface IAENKNRECodec {
     ) external pure returns (
         uint256[] memory pi,
         uint256[] memory enfNullifiers,
+        uint256 root,
         uint256[8] memory proofWords
     );
 
@@ -55,6 +56,7 @@ interface IAENKNRECodec {
     ) external pure returns (
         uint256[] memory pi,
         uint256[] memory enfNullifiers,
+        uint256 root,
         uint256[8] memory proofWords
     );
 

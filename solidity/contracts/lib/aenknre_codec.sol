@@ -132,9 +132,10 @@ contract AENKNRECodec is IAENKNRECodec {
         for (uint256 i; i < eE.length; ++i) pi[idx++] = eE[i];
     }
 
-    /// @dev Decodes the packed args: the first portion is standard ABI encoding,
-    ///   the last 192 bytes are 6 raw uint256 words encoding ProofContext.
-    function _splitArgs(bytes calldata args) private pure returns (uint256 ctxOff) {
+    /// @dev Returns the offset at which the ProofContext tail begins: the first
+    ///   portion of args is standard ABI encoding, and the last 192 bytes are 6
+    ///   raw uint256 words encoding ProofContext.
+    function _ctxOffset(bytes calldata args) private pure returns (uint256 ctxOff) {
         if (args.length < CTX_BYTES) revert InvalidArgsLength(args.length);
         ctxOff = args.length - CTX_BYTES;
     }
@@ -146,9 +147,9 @@ contract AENKNRECodec is IAENKNRECodec {
     function buildTransfer(
         bytes calldata proof,
         bytes calldata args
-    ) external pure override returns (uint256[] memory pi, uint256[] memory enfNullifiers, uint256[8] memory proofWords) {
+    ) external pure override returns (uint256[] memory pi, uint256[] memory enfNullifiers, uint256 root, uint256[8] memory proofWords) {
         (TransferFields memory f, Commonlib.Proof memory ps) = _decodeTransfer(proof);
-        uint256 ctxOff = _splitArgs(args);
+        uint256 ctxOff = _ctxOffset(args);
         (uint256[] memory nullifiers, uint256[] memory outputs) =
             abi.decode(args[:ctxOff], (uint256[], uint256[]));
         ProofContext memory ctx = abi.decode(args[ctxOff:], (ProofContext));
@@ -161,6 +162,7 @@ contract AENKNRECodec is IAENKNRECodec {
         _requireArity(outputs.length, OUTPUTS_LEN);
 
         enfNullifiers = f.enfN;
+        root = f.root;
         proofWords = _proofToWords(ps);
         pi = new uint256[](PI_LEN_TRANSFER);
         uint256 idx = _fillCipher(pi, 0, f.ecdhPub, f.encR, f.encA, f.encE);
@@ -181,7 +183,7 @@ contract AENKNRECodec is IAENKNRECodec {
         bytes calldata args
     ) external pure override returns (uint256[] memory pi, uint256[8] memory proofWords) {
         (DepositFields memory f, Commonlib.Proof memory ps) = _decodeDeposit(proof);
-        uint256 ctxOff = _splitArgs(args);
+        uint256 ctxOff = _ctxOffset(args);
         (uint256 amount, uint256[] memory outputs) =
             abi.decode(args[:ctxOff], (uint256, uint256[]));
         ProofContext memory ctx = abi.decode(args[ctxOff:], (ProofContext));
@@ -206,9 +208,9 @@ contract AENKNRECodec is IAENKNRECodec {
     function buildWithdraw(
         bytes calldata proof,
         bytes calldata args
-    ) external pure override returns (uint256[] memory pi, uint256[] memory enfNullifiers, uint256[8] memory proofWords) {
+    ) external pure override returns (uint256[] memory pi, uint256[] memory enfNullifiers, uint256 root, uint256[8] memory proofWords) {
         (WithdrawFields memory f, Commonlib.Proof memory ps) = _decodeWithdraw(proof);
-        uint256 ctxOff = _splitArgs(args);
+        uint256 ctxOff = _ctxOffset(args);
         // `recipient` travels in the args head, not the ProofContext tail: the
         // 192-byte context is shared by all four builders and must not change.
         (uint256 amount, uint256[] memory nullifiers, uint256 output, uint256 recipient) =
@@ -221,6 +223,7 @@ contract AENKNRECodec is IAENKNRECodec {
         _requireArity(nullifiers.length, NULLIFIERS_LEN);
 
         enfNullifiers = f.enfN;
+        root = f.root;
         proofWords = _proofToWords(ps);
         pi = new uint256[](PI_LEN_WITHDRAW);
         pi[0] = f.ecdhPub[0]; pi[1] = f.ecdhPub[1]; uint256 idx = 2;
@@ -244,7 +247,7 @@ contract AENKNRECodec is IAENKNRECodec {
         bytes calldata args
     ) external pure override returns (uint256[] memory pi, uint256[] memory enfNullifiers, uint256 root, uint256[8] memory proofWords) {
         (ForcedTransferFields memory f, Commonlib.Proof memory ps) = _decodeForcedTransfer(proof);
-        uint256 ctxOff = _splitArgs(args);
+        uint256 ctxOff = _ctxOffset(args);
         (uint256[] memory outputs) =
             abi.decode(args[:ctxOff], (uint256[]));
         ProofContext memory ctx = abi.decode(args[ctxOff:], (ProofContext));

@@ -59,16 +59,6 @@ contract Zeto_AENKNRETransferFacet is
         if (!_s().enforcerSet) revert EnforcerNotSet();
     }
 
-    /// @dev Validates the Merkle root the proof was built against. The AENKNR-E
-    ///   transfer and withdraw proof encodings both lead with `root`, so the
-    ///   first ABI word is the root the codec also copies into `pi`. The base
-    ///   `Zeto_AnonNullifier` validates the root inside its own
-    ///   `constructPublicInputs`, which this contract replaces wholesale, so
-    ///   the check has to be re-stated here or it would not happen at all.
-    function _validateProofRoot(bytes memory proof) private view {
-        validateRoot(abi.decode(proof, (uint256)));
-    }
-
     // ── Codec interaction ──
     //
     // The codec is an external contract called via STATICCALL. Its return data
@@ -153,7 +143,6 @@ contract Zeto_AENKNRETransferFacet is
         bool
     ) internal virtual override returns (uint256[] memory, Commonlib.Proof memory) {
         _requireEnforcerSet();
-        _validateProofRoot(proof);
         bytes memory args = bytes.concat(
             abi.encode(nullifiers, outputs),
             _encodeCtx()
@@ -164,8 +153,10 @@ contract Zeto_AENKNRETransferFacet is
         (
             uint256[] memory pi,
             uint256[] memory enfN,
+            uint256 root,
             uint256[8] memory proofWords
-        ) = abi.decode(ret, (uint256[], uint256[], uint256[8]));
+        ) = abi.decode(ret, (uint256[], uint256[], uint256, uint256[8]));
+        validateRoot(root);
         _checkEnforcementNullifiersUnspent(enfN);
         _s().pendingEnfNullifiers = enfN;
         return (pi, _toProof(proofWords));
@@ -195,7 +186,6 @@ contract Zeto_AENKNRETransferFacet is
         bytes memory proof
     ) internal virtual override returns (uint256[] memory, Commonlib.Proof memory) {
         _requireEnforcerSet();
-        _validateProofRoot(proof);
         // The facet runs under delegatecall, so msg.sender is the original caller
         // — the same address `ZetoFungible.withdraw` pays the ERC-20 to. Binding
         // it into the proof stops a copied withdrawal from paying anyone else.
@@ -209,8 +199,10 @@ contract Zeto_AENKNRETransferFacet is
         (
             uint256[] memory pi,
             uint256[] memory enfN,
+            uint256 root,
             uint256[8] memory proofWords
-        ) = abi.decode(ret, (uint256[], uint256[], uint256[8]));
+        ) = abi.decode(ret, (uint256[], uint256[], uint256, uint256[8]));
+        validateRoot(root);
         _checkEnforcementNullifiersUnspent(enfN);
         _s().pendingEnfNullifiers = enfN;
         return (pi, _toProof(proofWords));

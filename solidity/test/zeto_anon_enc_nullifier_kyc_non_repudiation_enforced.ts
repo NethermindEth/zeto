@@ -1991,6 +1991,105 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
         await zeto.connect(deployer).setComplianceRoot(activeRoot, "0x")
       ).wait();
     });
+
+    // The UTXO Merkle root the facet validates is the one the codec decodes and
+    // copies into pi, so a root the tree has never held is refused before the
+    // verifier is reached, on both proof paths. UTXORootNotFound is declared by
+    // NullifierStorage, which is where validateRoot ends up, so the assertion
+    // reads it off that interface rather than the token's.
+    const UNKNOWN_ROOT = 123456789n;
+    let storageInterface: any;
+
+    before(async function () {
+      storageInterface = await ethers.getContractAt(
+        "NullifierStorage",
+        ethers.ZeroAddress,
+      );
+    });
+
+    it("transfer is refused when the proof names a root the tree never held", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(30, Alice);
+      const u2 = newUTXO(70, Alice);
+      await mintAndTrack([u1, u2]);
+
+      const ephKp = genKeypair();
+      const tp = await proveTransfer(
+        Alice,
+        [u1, u2],
+        [newUTXO(50, Bob), newUTXO(50, Alice)],
+        [Bob, Alice],
+        smtAlice,
+        smtKyc,
+        smtCompAllActive,
+        Arbiter,
+        Enforcer,
+        ephKp,
+      );
+
+      await expect(
+        zeto.connect(Alice.signer).transfer(
+          tp.nullifiers!.filter((n) => n !== 0n),
+          tp.outputCommitments.filter((c) => c !== 0n),
+          encodeTransferProof(
+            UNKNOWN_ROOT,
+            tp.enfNullifiers,
+            tp.encryptionNonce,
+            tp.ecdhPublicKey,
+            tp.encRecv!,
+            tp.encArb!,
+            tp.encEnf,
+            tp.encodedProof,
+          ),
+          "0x",
+        ),
+      )
+        .to.be.revertedWithCustomError(storageInterface, "UTXORootNotFound")
+        .withArgs(UNKNOWN_ROOT);
+    });
+
+    it("withdraw is refused when the proof names a root the tree never held", async function () {
+      this.timeout(600000);
+      const u1 = newUTXO(40, Alice);
+      const u2 = newUTXO(60, Alice);
+      await mintAndTrack([u1, u2]);
+
+      const ephKp = genKeypair();
+      const wp = await proveWithdraw(
+        Alice,
+        [u1, u2],
+        newUTXO(20, Alice),
+        80,
+        smtAlice,
+        smtKyc,
+        smtCompAllActive,
+        Arbiter,
+        Enforcer,
+        ephKp,
+      );
+
+      await expect(
+        zeto
+          .connect(Alice.signer)
+          .withdraw(
+            80,
+            wp.ownerNullifiers!,
+            wp.changeCommitment,
+            encodeWithdrawProof(
+              UNKNOWN_ROOT,
+              wp.enfNullifiers,
+              wp.encryptionNonce,
+              wp.ecdhPublicKey,
+              wp.encArb!,
+              wp.encEnf,
+              wp.encodedProof,
+            ),
+            "0x",
+          ),
+      )
+        .to.be.revertedWithCustomError(storageInterface, "UTXORootNotFound")
+        .withArgs(UNKNOWN_ROOT);
+    });
   });
 
   // ── disabled-slot gating ──
