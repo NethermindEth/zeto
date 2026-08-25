@@ -19,7 +19,7 @@ export async function deployFungible(tokenName: string, erc20Address?: string) {
     logger.debug(`Using existing ERC20 contract at: ${erc20.target}`);
   }
   const verifiersDeployer = require(`./tokens/${tokenName}`);
-  const { deployer, args, libraries } =
+  const { deployer, args, codec, transferFacet, libraries } =
     await verifiersDeployer.deployDependencies();
 
   let zetoFactory;
@@ -42,6 +42,17 @@ export async function deployFungible(tokenName: string, erc20Address?: string) {
 
   const tx3 = await zeto.connect(deployer).setERC20(erc20.target);
   await tx3.wait();
+
+  // Enforced variants split the proof paths into an external codec and a
+  // transfer facet; both addresses are set once, after deployment.
+  if (codec) {
+    const tx4 = await zeto.connect(deployer).setCodec(codec);
+    await tx4.wait();
+  }
+  if (transferFacet) {
+    const tx5 = await zeto.connect(deployer).setTransferFacet(transferFacet);
+    await tx5.wait();
+  }
 
   logger.debug(`ZetoToken deployed: ${zeto.target}`);
 
