@@ -27,9 +27,9 @@ jobs:
       - name: Install circom
         uses: supplypike/setup-bin@8365380a806a88e7a0f0d07059b175ca2f5418d7 # v5.0.1
         with:
-          uri: https://github.com/iden3/circom/releases/download/v2.2.2/circom-linux-amd64
+          uri: https://github.com/iden3/circom/releases/download/v2.2.3/circom-linux-amd64
           name: circom
-          version: 2.2.2
+          version: 2.2.3
 
       - name: Checkout circuits
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -41,6 +41,15 @@ jobs:
         working-directory: zkp/circuits
         run: |
           npm install
+
+      - name: Install circomspect
+        run: cargo install circomspect --locked
+
+      # Circomspect exits 0 on a file it analysed nothing in, so a green run is
+      # not evidence unless it names the templates it covered. This asserts the
+      # coverage is real and keeps the known-zero list explicit.
+      - name: Check circomspect coverage
+        run: ./zkp/circuits/scripts/circomspect-coverage.sh
 
       - name: Run circuit unit tests
         working-directory: zkp/js
