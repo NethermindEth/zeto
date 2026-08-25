@@ -42,12 +42,21 @@ jobs:
         run: |
           npm install
 
-      - name: Install circomspect
-        run: cargo install circomspect --locked
+      # Pinned, like circom above and every action in this file. The gate reads
+      # circomspect's own output, so a release that rewords it would change what
+      # the gate enforces. circomspect has no --version flag, so the version can
+      # only be fixed at the install site.
+      - name: Cache circomspect
+        id: cache-circomspect
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cargo/bin/circomspect
+          key: circomspect-${{ runner.os }}-0.9.0
 
-      # Circomspect exits 0 on a file it analysed nothing in, so a green run is
-      # not evidence unless it names the templates it covered. This asserts the
-      # coverage is real and keeps the known-zero list explicit.
+      - name: Install circomspect
+        if: steps.cache-circomspect.outputs.cache-hit != 'true'
+        run: cargo install circomspect --locked --version 0.9.0
+
       - name: Check circomspect coverage
         run: ./zkp/circuits/scripts/circomspect-coverage.sh
 
