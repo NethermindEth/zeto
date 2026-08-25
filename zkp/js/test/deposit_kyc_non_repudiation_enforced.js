@@ -208,6 +208,9 @@ describe("deposit_kyc_non_repudiation_enforced circuit tests", () => {
     } = await buildDepositInputs(smtComplianceAllActive);
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
+    // calculateWitness evaluates the asserts; checkConstraints evaluates the
+    // R1CS system, which is where an under-constrained signal shows up.
+    await circuit.checkConstraints(witness);
 
     // Public-signal indices come from test/lib/aenknre-signal-layout.js, which
     // public-signal-layout.js checks against the compiled .sym. Circom orders

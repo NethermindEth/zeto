@@ -323,6 +323,9 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
     } = await buildHappyPathInputs(smtComplianceAllActive);
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
+    // calculateWitness evaluates the asserts; checkConstraints evaluates the
+    // R1CS system, which is where an under-constrained signal shows up.
+    await circuit.checkConstraints(witness);
 
     // console.log('witness', witness.slice(0, 60));
     // console.log('ownerNullifiers', ownerNullifiers);

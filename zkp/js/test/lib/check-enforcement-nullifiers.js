@@ -159,20 +159,22 @@ describe("CheckEnforcementNullifiers circuit tests", () => {
     expect(error).to.not.be.undefined;
   });
 
-  it("disabled slot with a non-zero but incorrect nullifier should fail", async () => {
-    // An enabled slot must match the derived nullifier exactly.
+  it("a zero ecdh key is refused", async () => {
+    // CheckNonZero on the ecdh key is what stops a prover from collapsing the
+    // shared secret: a zero scalar makes k0 derivable from the counterparty
+    // public key alone, so the nullifier would no longer be owner-bound. The
+    // wrapper suites cannot reach this guard, because they hit CheckNonZero on
+    // the owner public key first.
     const { inputCommitments, enforcementNullifiers } = makeInputs();
-
-    const withBadNonZero = [enforcementNullifiers[0], 1n];
 
     let error;
     try {
       await circuit.calculateWitness(
         {
-          enforcementNullifiers: withBadNonZero,
+          enforcementNullifiers,
           inputCommitments,
           counterpartyPublicKey: enforcer.pubKey,
-          ecdhKey: owner.formattedKey,
+          ecdhKey: 0n,
           enabled: [1, 1],
         },
         true,
