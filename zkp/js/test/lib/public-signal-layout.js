@@ -31,118 +31,12 @@ const { expect } = require("chai");
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { CIRCUITS, expand } = require("./aenknre-signal-layout.js");
 
 const ARTIFACTS =
   process.env.CIRCUITS_ROOT ||
   path.resolve(__dirname, "..", "..", "..", "artifacts");
 const SOLIDITY = path.resolve(__dirname, "..", "..", "..", "..", "solidity");
-
-// Expected public-signal order, index 1..nPublic, read off the compiled .sym.
-// Regenerate with:
-//   awk -F, '$2>=1 && $2<=<nPublic> {print $2"  "$4}' <circuit>.sym | sort -n -k1
-// dims: null = scalar, N = N-element array, [R, C] = 2-D array.
-const CIRCUITS = [
-  {
-    name: "anon_enc_nullifier_kyc_non_repudiation_enforced",
-    piLenConstant: "PI_LEN_TRANSFER",
-    nPublic: 58,
-    layout: [
-      ["ecdhPublicKey", 2],
-      ["encryptedValuesForReceiver", [2, 4]],
-      ["encryptedValuesForArbiter", 16],
-      ["encryptedValuesForEnforcer", 16],
-      ["ownerNullifiers", 2],
-      ["enforcementNullifiers", 2],
-      ["utxosRoot", null],
-      ["enabledInputs", 2],
-      ["identitiesRoot", null],
-      ["complianceRoot", null],
-      ["outputCommitments", 2],
-      ["encryptionNonce", null],
-      ["arbiterPublicKey", 2],
-      ["enforcerPublicKey", 2],
-    ],
-  },
-  {
-    name: "deposit_kyc_non_repudiation_enforced",
-    piLenConstant: "PI_LEN_DEPOSIT",
-    nPublic: 52,
-    layout: [
-      ["out", null],
-      ["ecdhPublicKey", 2],
-      ["encryptedValuesForReceiver", [2, 4]],
-      ["encryptedValuesForArbiter", 16],
-      ["encryptedValuesForEnforcer", 16],
-      ["outputCommitments", 2],
-      ["identitiesRoot", null],
-      ["complianceRoot", null],
-      ["encryptionNonce", null],
-      ["arbiterPublicKey", 2],
-      ["enforcerPublicKey", 2],
-    ],
-  },
-  {
-    name: "withdraw_nullifier_kyc_enforced",
-    piLenConstant: "PI_LEN_WITHDRAW",
-    nPublic: 51,
-    layout: [
-      ["ecdhPublicKey", 2],
-      ["encryptedValuesForArbiter", 16],
-      ["encryptedValuesForEnforcer", 16],
-      ["amount", null],
-      ["ownerNullifiers", 2],
-      ["enforcementNullifiers", 2],
-      ["outputCommitments", 1],
-      ["utxosRoot", null],
-      ["identitiesRoot", null],
-      ["complianceRoot", null],
-      ["enabledInputs", 2],
-      ["encryptionNonce", null],
-      ["arbiterPublicKey", 2],
-      ["enforcerPublicKey", 2],
-      ["recipient", null],
-    ],
-  },
-  {
-    name: "forced_transfer_nullifier_kyc_enforced",
-    piLenConstant: "PI_LEN_FORCED_TRANSFER",
-    nPublic: 56,
-    layout: [
-      ["ecdhPublicKey", 2],
-      ["encryptedValuesForReceiver", [2, 4]],
-      ["encryptedValuesForArbiter", 16],
-      ["encryptedValuesForEnforcer", 16],
-      ["enforcementNullifiers", 2],
-      ["outputCommitments", 2],
-      ["utxosRoot", null],
-      ["identitiesRoot", null],
-      ["complianceRoot", null],
-      ["enabledInputs", 2],
-      ["enforcerPublicKey", 2],
-      ["encryptionNonce", null],
-      ["arbiterPublicKey", 2],
-    ],
-  },
-];
-
-// Flatten [name, dims] entries into the per-index signal names circom emits.
-// dims is null for a scalar, a number for a 1-D array, or [rows, cols] for 2-D.
-function expand(layout) {
-  const names = [];
-  for (const [name, dims] of layout) {
-    if (dims === null) {
-      names.push(`main.${name}`);
-    } else if (Array.isArray(dims)) {
-      for (let i = 0; i < dims[0]; i++) {
-        for (let j = 0; j < dims[1]; j++)
-          names.push(`main.${name}[${i}][${j}]`);
-      }
-    } else {
-      for (let i = 0; i < dims; i++) names.push(`main.${name}[${i}]`);
-    }
-  }
-  return names;
-}
 
 // Read the public range (witness index 1..nPublic) out of a .sym file. The files
 // run to tens of megabytes, so this streams rather than reading them whole.
@@ -171,7 +65,23 @@ describe("AENKNR-E public signal layout", () => {
     describe(circuit.name, () => {
       const symPath = path.join(ARTIFACTS, `${circuit.name}.sym`);
       const vkeyPath = path.join(ARTIFACTS, `${circuit.name}-vkey.json`);
+      const verifierPath = path.join(
+        SOLIDITY,
+        "contracts",
+        "verifiers",
+        "impl",
+        `${circuit.name}.sol`,
+      );
+      const codecPath = path.join(
+        SOLIDITY,
+        "contracts",
+        "lib",
+        "aenknre_codec.sol",
+      );
 
+      // The circuit artifacts are gitignored build output and the two Solidity
+      // files arrive later in the stack, so each test skips on what it reads
+      // rather than failing with ENOENT on a file that is legitimately absent.
       before(function () {
         if (!fs.existsSync(symPath) || !fs.existsSync(vkeyPath)) {
           this.skip();
@@ -198,24 +108,16 @@ describe("AENKNR-E public signal layout", () => {
         const vkey = JSON.parse(fs.readFileSync(vkeyPath, "utf8"));
         expect(vkey.nPublic).to.equal(circuit.nPublic);
 
-        const verifier = fs.readFileSync(
-          path.join(
-            SOLIDITY,
-            "contracts",
-            "verifiers",
-            "impl",
-            `${circuit.name}.sol`,
-          ),
-          "utf8",
-        );
+        if (!fs.existsSync(verifierPath) || !fs.existsSync(codecPath)) {
+          this.skip();
+        }
+
+        const verifier = fs.readFileSync(verifierPath, "utf8");
         const arity = verifier.match(/uint\[(\d+)\] calldata _pubSignals/);
         expect(arity, "verifier has no _pubSignals signature").to.not.be.null;
         expect(Number(arity[1])).to.equal(circuit.nPublic);
 
-        const codec = fs.readFileSync(
-          path.join(SOLIDITY, "contracts", "lib", "aenknre_codec.sol"),
-          "utf8",
-        );
+        const codec = fs.readFileSync(codecPath, "utf8");
         const constant = codec.match(
           new RegExp(`${circuit.piLenConstant}\\s*=\\s*(\\d+)`),
         );

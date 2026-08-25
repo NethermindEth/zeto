@@ -1,4 +1,5 @@
 const { expect } = require("chai");
+const { witnessIndex } = require("./lib/aenknre-signal-layout.js");
 const { newRejectionTracker } = require("./util/witness-errors.js");
 const { join } = require("path");
 const { wasm: wasm_tester } = require("circom_tester");
@@ -32,6 +33,10 @@ const poseidonHash3 = Poseidon.poseidon3;
 
 const STATUS_ACTIVE = 1n;
 const STATUS_FROZEN = 2n;
+
+// The 1-based witness index of a public signal of this circuit.
+const pi = (signal) =>
+  witnessIndex("forced_transfer_nullifier_kyc_enforced", signal);
 
 describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
   let circuit;
@@ -239,37 +244,37 @@ describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
 
-    // ── public signal ordering snapshot for Solidity integration ──
-    //   output signals (automatically public, appear first):
-    //     [1-2]    ecdhPublicKey[2]
-    //     [3-10]   encryptedValuesForReceiver[2][4]
-    //     [11-26]  encryptedValuesForArbiter[16]
-    //     [27-42]  encryptedValuesForEnforcer[16]
-    //   public input signals (in { public [] } declaration order):
-    //     [43-44]  enforcementNullifiers[2]
-    //     [45-46]  outputCommitments[2]
-    //     [47]     utxosRoot
-    //     [48]     identitiesRoot
-    //     [49]     complianceRoot
-    //     [50-51]  enabledInputs[2]
-    //     [52-53]  enforcerPublicKey[2]
-    //     [54]     encryptionNonce
-    //     [55-56]  arbiterPublicKey[2]
+    // Public-signal indices come from test/lib/aenknre-signal-layout.js, which
+    // public-signal-layout.js checks against the compiled .sym. Circom orders
+    // public signals by declaration order in the template, not by the order of
+    // the `{ public [...] }` list, so they cannot be re-derived by hand here.
 
-    expect(witness[43]).to.equal(BigInt(enforcementNullifiers[0]));
-    expect(witness[44]).to.equal(BigInt(enforcementNullifiers[1]));
-    expect(witness[45]).to.equal(BigInt(outputCommitments[0]));
-    expect(witness[46]).to.equal(BigInt(outputCommitments[1]));
-    expect(witness[47]).to.equal(circuitInputs.utxosRoot);
-    expect(witness[48]).to.equal(circuitInputs.identitiesRoot);
-    expect(witness[49]).to.equal(circuitInputs.complianceRoot);
-    expect(witness[50]).to.equal(1n);
-    expect(witness[51]).to.equal(1n);
-    expect(witness[52]).to.equal(Enforcer.pubKey[0]);
-    expect(witness[53]).to.equal(Enforcer.pubKey[1]);
-    expect(witness[54]).to.equal(BigInt(encryptionNonce));
-    expect(witness[55]).to.equal(Arbiter.pubKey[0]);
-    expect(witness[56]).to.equal(Arbiter.pubKey[1]);
+    expect(witness[pi("enforcementNullifiers[0]")]).to.equal(
+      BigInt(enforcementNullifiers[0]),
+    );
+    expect(witness[pi("enforcementNullifiers[1]")]).to.equal(
+      BigInt(enforcementNullifiers[1]),
+    );
+    expect(witness[pi("outputCommitments[0]")]).to.equal(
+      BigInt(outputCommitments[0]),
+    );
+    expect(witness[pi("outputCommitments[1]")]).to.equal(
+      BigInt(outputCommitments[1]),
+    );
+    expect(witness[pi("utxosRoot")]).to.equal(circuitInputs.utxosRoot);
+    expect(witness[pi("identitiesRoot")]).to.equal(
+      circuitInputs.identitiesRoot,
+    );
+    expect(witness[pi("complianceRoot")]).to.equal(
+      circuitInputs.complianceRoot,
+    );
+    expect(witness[pi("enabledInputs[0]")]).to.equal(1n);
+    expect(witness[pi("enabledInputs[1]")]).to.equal(1n);
+    expect(witness[pi("enforcerPublicKey[0]")]).to.equal(Enforcer.pubKey[0]);
+    expect(witness[pi("enforcerPublicKey[1]")]).to.equal(Enforcer.pubKey[1]);
+    expect(witness[pi("encryptionNonce")]).to.equal(BigInt(encryptionNonce));
+    expect(witness[pi("arbiterPublicKey[0]")]).to.equal(Arbiter.pubKey[0]);
+    expect(witness[pi("arbiterPublicKey[1]")]).to.equal(Arbiter.pubKey[1]);
 
     // inputCommitments must NOT appear in public signals (privacy requirement)
     const publicSignals = witness.slice(1, 57);
@@ -446,8 +451,12 @@ describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
 
-    expect(witness[45]).to.equal(BigInt(outputCommitments[0]));
-    expect(witness[46]).to.equal(BigInt(outputCommitments[1]));
+    expect(witness[pi("outputCommitments[0]")]).to.equal(
+      BigInt(outputCommitments[0]),
+    );
+    expect(witness[pi("outputCommitments[1]")]).to.equal(
+      BigInt(outputCommitments[1]),
+    );
   });
 
   it("should fail when output goes to FROZEN party that is NOT the seized owner", async function () {
@@ -657,6 +666,6 @@ describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
     );
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
-    expect(witness[46]).to.equal(0n); // outputCommitments[1] == 0
+    expect(witness[pi("outputCommitments[1]")]).to.equal(0n);
   });
 });

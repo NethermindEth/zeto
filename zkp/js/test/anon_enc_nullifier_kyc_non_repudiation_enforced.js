@@ -1,4 +1,5 @@
 const { expect } = require("chai");
+const { witnessIndex } = require("./lib/aenknre-signal-layout.js");
 const { newRejectionTracker } = require("./util/witness-errors.js");
 const { join } = require("path");
 const { wasm: wasm_tester } = require("circom_tester");
@@ -31,6 +32,10 @@ const poseidonHash3 = Poseidon.poseidon3;
 
 const STATUS_ACTIVE = 1n;
 const STATUS_FROZEN = 2n;
+
+// The 1-based witness index of a public signal of this circuit.
+const pi = (signal) =>
+  witnessIndex("anon_enc_nullifier_kyc_non_repudiation_enforced", signal);
 
 describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-repudiation, and enforcement nullifiers", () => {
   let circuit;
@@ -328,44 +333,39 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
     // console.log('complianceRoot', complianceRoot);
     // console.log('encryptionNonce', encryptionNonce);
 
-    // Public signal ordering, read off
-    // zkp/artifacts/anon_enc_nullifier_kyc_non_repudiation_enforced.sym
-    // (nPublic = 58; witness[0] is the constant 1, so signal i is witness[i]).
-    // Circom orders public inputs by DECLARATION order in the template, not by the
-    // order of the `{ public [...] }` list — do not re-derive this by hand.
-    //   output signals (automatically public, appear first):
-    //     [1-2]    ecdhPublicKey[2]
-    //     [3-10]   encryptedValuesForReceiver[2][4]
-    //     [11-26]  encryptedValuesForArbiter[16]
-    //     [27-42]  encryptedValuesForEnforcer[16]
-    //   public input signals:
-    //     [43-44]  ownerNullifiers[2]
-    //     [45-46]  enforcementNullifiers[2]
-    //     [47]     utxosRoot
-    //     [48-49]  enabledInputs[2]
-    //     [50]     identitiesRoot
-    //     [51]     complianceRoot
-    //     [52-53]  outputCommitments[2]
-    //     [54]     encryptionNonce
-    //     [55-56]  arbiterPublicKey[2]
-    //     [57-58]  enforcerPublicKey[2]
+    // Public-signal indices come from test/lib/aenknre-signal-layout.js, which
+    // public-signal-layout.js checks against the compiled .sym. Circom orders
+    // public signals by declaration order in the template, not by the order of
+    // the `{ public [...] }` list, so they cannot be re-derived by hand here.
 
-    expect(witness[43]).to.equal(BigInt(ownerNullifiers[0]));
-    expect(witness[44]).to.equal(BigInt(ownerNullifiers[1]));
-    expect(witness[45]).to.equal(BigInt(enforcementNullifiers[0]));
-    expect(witness[46]).to.equal(BigInt(enforcementNullifiers[1]));
-    expect(witness[47]).to.equal(utxosRoot);
-    expect(witness[48]).to.equal(1n);
-    expect(witness[49]).to.equal(1n);
-    expect(witness[50]).to.equal(identitiesRoot);
-    expect(witness[51]).to.equal(complianceRoot);
-    expect(witness[52]).to.equal(BigInt(outputCommitments[0]));
-    expect(witness[53]).to.equal(BigInt(outputCommitments[1]));
-    expect(witness[54]).to.equal(BigInt(encryptionNonce));
-    expect(witness[55]).to.equal(Arbiter.pubKey[0]);
-    expect(witness[56]).to.equal(Arbiter.pubKey[1]);
-    expect(witness[57]).to.equal(Enforcer.pubKey[0]);
-    expect(witness[58]).to.equal(Enforcer.pubKey[1]);
+    expect(witness[pi("ownerNullifiers[0]")]).to.equal(
+      BigInt(ownerNullifiers[0]),
+    );
+    expect(witness[pi("ownerNullifiers[1]")]).to.equal(
+      BigInt(ownerNullifiers[1]),
+    );
+    expect(witness[pi("enforcementNullifiers[0]")]).to.equal(
+      BigInt(enforcementNullifiers[0]),
+    );
+    expect(witness[pi("enforcementNullifiers[1]")]).to.equal(
+      BigInt(enforcementNullifiers[1]),
+    );
+    expect(witness[pi("utxosRoot")]).to.equal(utxosRoot);
+    expect(witness[pi("enabledInputs[0]")]).to.equal(1n);
+    expect(witness[pi("enabledInputs[1]")]).to.equal(1n);
+    expect(witness[pi("identitiesRoot")]).to.equal(identitiesRoot);
+    expect(witness[pi("complianceRoot")]).to.equal(complianceRoot);
+    expect(witness[pi("outputCommitments[0]")]).to.equal(
+      BigInt(outputCommitments[0]),
+    );
+    expect(witness[pi("outputCommitments[1]")]).to.equal(
+      BigInt(outputCommitments[1]),
+    );
+    expect(witness[pi("encryptionNonce")]).to.equal(BigInt(encryptionNonce));
+    expect(witness[pi("arbiterPublicKey[0]")]).to.equal(Arbiter.pubKey[0]);
+    expect(witness[pi("arbiterPublicKey[1]")]).to.equal(Arbiter.pubKey[1]);
+    expect(witness[pi("enforcerPublicKey[0]")]).to.equal(Enforcer.pubKey[0]);
+    expect(witness[pi("enforcerPublicKey[1]")]).to.equal(Enforcer.pubKey[1]);
 
     // take the output from the proof circuit and attempt to decrypt
     // as the receiver (Bob decrypts output 1)
@@ -634,9 +634,9 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
 
     // console.log('witness', witness.slice(0, 60));
 
-    // witness[53] is outputCommitments[1] per the .sym; witness[48] is
+    // witness[pi("outputCommitments[1]")] is outputCommitments[1] per the .sym; witness[pi("enabledInputs[0]")] is
     // enabledInputs[0], which is 1 here.
-    expect(witness[53]).to.equal(0n);
+    expect(witness[pi("outputCommitments[1]")]).to.equal(0n);
   });
 
   // Rebuild the two output commitments so CheckSum is satisfied by `values`.
@@ -873,11 +873,19 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
     const witness = await circuit.calculateWitness(circuitInputs, true);
     await circuit.checkConstraints(witness);
 
-    expect(witness[45]).to.equal(BigInt(enforcementNullifiers[0]));
-    expect(witness[46]).to.equal(BigInt(enforcementNullifiers[1]));
+    expect(witness[pi("enforcementNullifiers[0]")]).to.equal(
+      BigInt(enforcementNullifiers[0]),
+    );
+    expect(witness[pi("enforcementNullifiers[1]")]).to.equal(
+      BigInt(enforcementNullifiers[1]),
+    );
     // and the note itself is unchanged: same commitments, same outputs
-    expect(witness[52]).to.equal(BigInt(outputCommitments[0]));
-    expect(witness[53]).to.equal(BigInt(outputCommitments[1]));
+    expect(witness[pi("outputCommitments[0]")]).to.equal(
+      BigInt(outputCommitments[0]),
+    );
+    expect(witness[pi("outputCommitments[1]")]).to.equal(
+      BigInt(outputCommitments[1]),
+    );
   });
 
   it("should fail when the output recipient is not KYC-registered", async function () {

@@ -1,4 +1,5 @@
 const { expect } = require("chai");
+const { witnessIndex } = require("./lib/aenknre-signal-layout.js");
 const { newRejectionTracker } = require("./util/witness-errors.js");
 const { join } = require("path");
 const { wasm: wasm_tester } = require("circom_tester");
@@ -29,6 +30,10 @@ const poseidonHash3 = Poseidon.poseidon3;
 
 const STATUS_ACTIVE = 1n;
 const STATUS_FROZEN = 2n;
+
+// The 1-based witness index of a public signal of this circuit.
+const pi = (signal) =>
+  witnessIndex("deposit_kyc_non_repudiation_enforced", signal);
 
 describe("deposit_kyc_non_repudiation_enforced circuit tests", () => {
   let circuit;
@@ -204,33 +209,29 @@ describe("deposit_kyc_non_repudiation_enforced circuit tests", () => {
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
 
-    // public signal ordering snapshot for Solidity integration:
-    //   output signals (automatically public, appear first):
-    //     [1]      out (deposit amount = publicInputs[0])
-    //     [2-3]    ecdhPublicKey[2]
-    //     [4-11]   encryptedValuesForReceiver[2][4]
-    //     [12-27]  encryptedValuesForArbiter[16]
-    //     [28-43]  encryptedValuesForEnforcer[16]
-    //   public input signals (in { public [] } declaration order):
-    //     [44-45]  outputCommitments[2]
-    //     [46]     identitiesRoot
-    //     [47]     complianceRoot
-    //     [48]     encryptionNonce
-    //     [49-50]  arbiterPublicKey[2]
-    //     [51-52]  enforcerPublicKey[2]
+    // Public-signal indices come from test/lib/aenknre-signal-layout.js, which
+    // public-signal-layout.js checks against the compiled .sym. Circom orders
+    // public signals by declaration order in the template, not by the order of
+    // the `{ public [...] }` list, so they cannot be re-derived by hand here.
 
     // amount binding: out == sum(outputValues)
-    expect(witness[1]).to.equal(BigInt(outputValues[0] + outputValues[1]));
+    expect(witness[pi("out")]).to.equal(
+      BigInt(outputValues[0] + outputValues[1]),
+    );
 
-    expect(witness[44]).to.equal(BigInt(outputCommitments[0]));
-    expect(witness[45]).to.equal(BigInt(outputCommitments[1]));
-    expect(witness[46]).to.equal(identitiesRoot);
-    expect(witness[47]).to.equal(complianceRoot);
-    expect(witness[48]).to.equal(BigInt(encryptionNonce));
-    expect(witness[49]).to.equal(Arbiter.pubKey[0]);
-    expect(witness[50]).to.equal(Arbiter.pubKey[1]);
-    expect(witness[51]).to.equal(Enforcer.pubKey[0]);
-    expect(witness[52]).to.equal(Enforcer.pubKey[1]);
+    expect(witness[pi("outputCommitments[0]")]).to.equal(
+      BigInt(outputCommitments[0]),
+    );
+    expect(witness[pi("outputCommitments[1]")]).to.equal(
+      BigInt(outputCommitments[1]),
+    );
+    expect(witness[pi("identitiesRoot")]).to.equal(identitiesRoot);
+    expect(witness[pi("complianceRoot")]).to.equal(complianceRoot);
+    expect(witness[pi("encryptionNonce")]).to.equal(BigInt(encryptionNonce));
+    expect(witness[pi("arbiterPublicKey[0]")]).to.equal(Arbiter.pubKey[0]);
+    expect(witness[pi("arbiterPublicKey[1]")]).to.equal(Arbiter.pubKey[1]);
+    expect(witness[pi("enforcerPublicKey[0]")]).to.equal(Enforcer.pubKey[0]);
+    expect(witness[pi("enforcerPublicKey[1]")]).to.equal(Enforcer.pubKey[1]);
 
     // receiver decryption: Alice decrypts output 1
     let cipherText = witness.slice(4, 8);
@@ -262,7 +263,10 @@ describe("deposit_kyc_non_repudiation_enforced circuit tests", () => {
       14,
     );
     // depositor pubkey = ecdhPublicKey (from ecdhPrivateKey via BabyPbk)
-    const depositorPubKey = [witness[2], witness[3]];
+    const depositorPubKey = [
+      witness[pi("ecdhPublicKey[0]")],
+      witness[pi("ecdhPublicKey[1]")],
+    ];
     expect(arbiterPlainText).to.deep.equal([
       depositorPubKey[0], // depositor public key
       depositorPubKey[1],
@@ -583,8 +587,8 @@ describe("deposit_kyc_non_repudiation_enforced circuit tests", () => {
       true,
     );
 
-    expect(witness[1]).to.equal(300n); // out == sum(outputValues)
-    expect(witness[45]).to.equal(0n); // outputCommitments[1] == 0
+    expect(witness[pi("out")]).to.equal(300n); // out == sum(outputValues)
+    expect(witness[pi("outputCommitments[1]")]).to.equal(0n);
   });
 
   it("should fail because output commitment does not match preimage", async function () {

@@ -9,7 +9,7 @@
     "prettier:fix": "npm run prettier -- --write",
     "pretest": "npm run prettier:fix",
     "test": "mocha --exit test/*.js test/lib/*.js",
-    "test:e2e": "mocha --exit integration-test/*.js"
+    "test:e2e": "mocha --exit integration-test/*.js test/lib/public-signal-layout.js"
   },
   "dependencies": {
     "@zk-kit/baby-jubjub": "^1.0.3",

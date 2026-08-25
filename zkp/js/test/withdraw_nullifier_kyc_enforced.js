@@ -1,4 +1,5 @@
 const { expect } = require("chai");
+const { witnessIndex } = require("./lib/aenknre-signal-layout.js");
 const { newRejectionTracker } = require("./util/witness-errors.js");
 const { join } = require("path");
 const { wasm: wasm_tester } = require("circom_tester");
@@ -36,6 +37,9 @@ const STATUS_FROZEN = 2n;
 // and the proof binds it, so an observer cannot copy a pending withdrawal and
 // redirect the payout. The circuit places no other statement on the value.
 const RECIPIENT = BigInt("0x1234567890123456789012345678901234567890");
+
+// The 1-based witness index of a public signal of this circuit.
+const pi = (signal) => witnessIndex("withdraw_nullifier_kyc_enforced", signal);
 
 describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
   let circuit;
@@ -269,45 +273,38 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
 
-    // Public signal ordering, read off zkp/artifacts/withdraw_nullifier_kyc_enforced.sym
-    // (nPublic = 51; witness[0] is the constant 1, so signal i is witness[i]).
-    // Circom orders public inputs by DECLARATION order in the template, not by the
-    // order of the `{ public [...] }` list — do not re-derive this by hand.
-    //   output signals (automatically public, appear first):
-    //     [1-2]    ecdhPublicKey[2]
-    //     [3-18]   encryptedValuesForArbiter[16]
-    //     [19-34]  encryptedValuesForEnforcer[16]
-    //   public input signals:
-    //     [35]     amount
-    //     [36-37]  ownerNullifiers[2]
-    //     [38-39]  enforcementNullifiers[2]
-    //     [40]     outputCommitments[1]
-    //     [41]     utxosRoot
-    //     [42]     identitiesRoot
-    //     [43]     complianceRoot
-    //     [44-45]  enabledInputs[2]
-    //     [46]     encryptionNonce
-    //     [47-48]  arbiterPublicKey[2]
-    //     [49-50]  enforcerPublicKey[2]
-    //     [51]     recipient
+    // Public-signal indices come from test/lib/aenknre-signal-layout.js, which
+    // public-signal-layout.js checks against the compiled .sym. Circom orders
+    // public signals by declaration order in the template, not by the order of
+    // the `{ public [...] }` list, so they cannot be re-derived by hand here.
 
-    expect(witness[35]).to.equal(BigInt(amount));
-    expect(witness[36]).to.equal(BigInt(ownerNullifiers[0]));
-    expect(witness[37]).to.equal(BigInt(ownerNullifiers[1]));
-    expect(witness[38]).to.equal(BigInt(enforcementNullifiers[0]));
-    expect(witness[39]).to.equal(BigInt(enforcementNullifiers[1]));
-    expect(witness[40]).to.equal(BigInt(outputCommitments[0]));
-    expect(witness[41]).to.equal(utxosRoot);
-    expect(witness[42]).to.equal(identitiesRoot);
-    expect(witness[43]).to.equal(complianceRoot);
-    expect(witness[44]).to.equal(1n);
-    expect(witness[45]).to.equal(1n);
-    expect(witness[46]).to.equal(BigInt(encryptionNonce));
-    expect(witness[47]).to.equal(Arbiter.pubKey[0]);
-    expect(witness[48]).to.equal(Arbiter.pubKey[1]);
-    expect(witness[49]).to.equal(Enforcer.pubKey[0]);
-    expect(witness[50]).to.equal(Enforcer.pubKey[1]);
-    expect(witness[51]).to.equal(RECIPIENT);
+    expect(witness[pi("amount")]).to.equal(BigInt(amount));
+    expect(witness[pi("ownerNullifiers[0]")]).to.equal(
+      BigInt(ownerNullifiers[0]),
+    );
+    expect(witness[pi("ownerNullifiers[1]")]).to.equal(
+      BigInt(ownerNullifiers[1]),
+    );
+    expect(witness[pi("enforcementNullifiers[0]")]).to.equal(
+      BigInt(enforcementNullifiers[0]),
+    );
+    expect(witness[pi("enforcementNullifiers[1]")]).to.equal(
+      BigInt(enforcementNullifiers[1]),
+    );
+    expect(witness[pi("outputCommitments[0]")]).to.equal(
+      BigInt(outputCommitments[0]),
+    );
+    expect(witness[pi("utxosRoot")]).to.equal(utxosRoot);
+    expect(witness[pi("identitiesRoot")]).to.equal(identitiesRoot);
+    expect(witness[pi("complianceRoot")]).to.equal(complianceRoot);
+    expect(witness[pi("enabledInputs[0]")]).to.equal(1n);
+    expect(witness[pi("enabledInputs[1]")]).to.equal(1n);
+    expect(witness[pi("encryptionNonce")]).to.equal(BigInt(encryptionNonce));
+    expect(witness[pi("arbiterPublicKey[0]")]).to.equal(Arbiter.pubKey[0]);
+    expect(witness[pi("arbiterPublicKey[1]")]).to.equal(Arbiter.pubKey[1]);
+    expect(witness[pi("enforcerPublicKey[0]")]).to.equal(Enforcer.pubKey[0]);
+    expect(witness[pi("enforcerPublicKey[1]")]).to.equal(Enforcer.pubKey[1]);
+    expect(witness[pi("recipient")]).to.equal(RECIPIENT);
 
     // arbiter decrypts the 14-element authority plaintext
     const arbiterKey = genEcdhSharedKey(
@@ -374,8 +371,10 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
 
-    expect(witness[35]).to.equal(BigInt(amount));
-    expect(witness[40]).to.equal(BigInt(outputCommitments[0])); // 0n
+    expect(witness[pi("amount")]).to.equal(BigInt(amount));
+    expect(witness[pi("outputCommitments[0]")]).to.equal(
+      BigInt(outputCommitments[0]),
+    ); // 0n
 
     // arbiter can still see the full plaintext even with zero change
     const arbiterKey = genEcdhSharedKey(
@@ -494,7 +493,7 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
     const witness = await circuit.calculateWitness(circuitInputs, true);
 
     // amount == 0 is valid (value conservation: 30 == 0 + 30)
-    expect(witness[35]).to.equal(0n);
+    expect(witness[pi("amount")]).to.equal(0n);
 
     // Arbiter CAN see the change output even when amount is zero —
     // this is the fix for the note-washing vulnerability.
