@@ -16,6 +16,8 @@
 
 const path = require("path");
 const { readFileSync } = require("fs");
+const { expect } = require("chai");
+const { groth16 } = require("snarkjs");
 
 function provingKeysRoot() {
   const PROVING_KEYS_ROOT = process.env.PROVING_KEYS_ROOT;
@@ -47,4 +49,34 @@ function loadProvingKeys(type) {
   };
 }
 
-module.exports = { loadProvingKeys };
+// BN254 scalar field modulus. The generated verifiers call it `r` and
+// lib/util.js calls it `F`; it is the scalar field, not the base field, so
+// `BN254_P` — the name the proving tests used — is the one name that is wrong.
+const R =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+
+// Asserts that every public signal is bound by the verification key rather than
+// merely published. A signal declared public but constrained by nothing gets an
+// identity IC point and is therefore free to move, which neither the witness
+// suite nor the Solidity suite would notice.
+//
+// `names` comes from test/lib/aenknre-signal-layout.js, which
+// test/lib/public-signal-layout.js checks against the compiled .sym, so the
+// failure message names the signal that actually moved.
+async function expectEveryPublicSignalBound(
+  verificationKey,
+  publicSignals,
+  proof,
+  names,
+) {
+  for (let i = 0; i < publicSignals.length; i++) {
+    const swept = publicSignals.slice();
+    swept[i] = ((BigInt(swept[i]) + 1n) % R).toString();
+    expect(
+      await groth16.verify(verificationKey, swept, proof),
+      `signal ${i} (${names[i]}) is not bound by the verification key`,
+    ).to.be.false;
+  }
+}
+
+module.exports = { loadProvingKeys, expectEveryPublicSignalBound, R };

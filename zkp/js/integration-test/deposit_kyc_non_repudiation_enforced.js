@@ -36,9 +36,17 @@ const {
   poseidonDecrypt,
   kycHash,
 } = require("../index.js");
-const { loadProvingKeys } = require("./utils.js");
+const { loadProvingKeys, expectEveryPublicSignalBound } = require("./utils.js");
+const { signalNames } = require("../test/lib/aenknre-signal-layout.js");
 
 const CIRCUIT_NAME = "deposit_kyc_non_repudiation_enforced";
+
+// publicSignals[i] is SIGNAL_NAMES[i]; the same signal is witness[i + 1],
+// because witness[0] is the constant 1. The order is declared once in
+// test/lib/aenknre-signal-layout.js and checked there against the compiled
+// .sym, the generated verifier's _pubSignals arity and PI_LEN_* in
+// solidity/contracts/lib/aenknre_codec.sol.
+const SIGNAL_NAMES = signalNames(CIRCUIT_NAME);
 
 const SMT_HEIGHT_IDENTITY = 20;
 const SMT_HEIGHT_COMPLIANCE = 20;
@@ -47,36 +55,6 @@ const poseidonHash2 = Poseidon.poseidon2;
 const poseidonHash3 = Poseidon.poseidon3;
 
 const STATUS_ACTIVE = 1n;
-
-const BN254_P =
-  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-
-// publicSignals[i] is SIGNAL_NAMES[i]; the same signal is witness[i + 1], because
-// witness[0] is the constant 1. Circom orders public signals by declaration order
-// in the template, not by the order of the `{ public [...] }` list, so the order
-// cannot be read off the .circom source. zkp/js/test/lib/public-signal-layout.js is
-// the authority: it pins this order against the compiled .sym, and against the
-// generated verifier's _pubSignals arity and PI_LEN_DEPOSIT in
-// solidity/contracts/lib/aenknre_codec.sol. Trailing numbers are 0-based group
-// starts, so you can check an assertion's bare index without summing the widths.
-const SIGNAL_NAMES = [
-  ["out", 1], // 0
-  ["ecdhPublicKey", 2], // 1
-  ["encryptedValuesForReceiver[0]", 4], // 3
-  ["encryptedValuesForReceiver[1]", 4], // 7
-  ["encryptedValuesForArbiter", 16], // 11
-  ["encryptedValuesForEnforcer", 16], // 27
-  ["outputCommitments", 2], // 43
-  ["identitiesRoot", 1], // 45
-  ["complianceRoot", 1], // 46
-  ["encryptionNonce", 1], // 47
-  ["arbiterPublicKey", 2], // 48
-  ["enforcerPublicKey", 2], // 50
-].flatMap(([name, width]) =>
-  width === 1
-    ? [name]
-    : Array.from({ length: width }, (_, i) => `${name}[${i}]`),
-);
 
 describe("deposit_kyc_non_repudiation_enforced circuit tests", () => {
   let circuit, provingKeyFile, verificationKey;
@@ -282,13 +260,11 @@ describe("deposit_kyc_non_repudiation_enforced circuit tests", () => {
     expect(verifyResult).to.be.false;
 
     // every public signal must be bound by the key, not merely published
-    for (let i = 0; i < publicSignals.length; i++) {
-      const swept = publicSignals.slice();
-      swept[i] = ((BigInt(swept[i]) + 1n) % BN254_P).toString();
-      expect(
-        await groth16.verify(verificationKey, swept, proof),
-        `signal ${i} (${SIGNAL_NAMES[i]}) is not bound by the verification key`,
-      ).to.be.false;
-    }
+    await expectEveryPublicSignalBound(
+      verificationKey,
+      publicSignals,
+      proof,
+      SIGNAL_NAMES,
+    );
   }).timeout(600000);
 });

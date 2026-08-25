@@ -35,10 +35,19 @@ const {
   newEncryptionNonce,
   poseidonDecrypt,
   kycHash,
+  enforcementNullifier,
 } = require("../index.js");
-const { loadProvingKeys } = require("./utils.js");
+const { loadProvingKeys, expectEveryPublicSignalBound } = require("./utils.js");
+const { signalNames } = require("../test/lib/aenknre-signal-layout.js");
 
 const CIRCUIT_NAME = "withdraw_nullifier_kyc_enforced";
+
+// publicSignals[i] is SIGNAL_NAMES[i]; the same signal is witness[i + 1],
+// because witness[0] is the constant 1. The order is declared once in
+// test/lib/aenknre-signal-layout.js and checked there against the compiled
+// .sym, the generated verifier's _pubSignals arity and PI_LEN_* in
+// solidity/contracts/lib/aenknre_codec.sol.
+const SIGNAL_NAMES = signalNames(CIRCUIT_NAME);
 
 const SMT_HEIGHT_UTXO = 32;
 const SMT_HEIGHT_IDENTITY = 20;
@@ -49,57 +58,11 @@ const poseidonHash3 = Poseidon.poseidon3;
 
 const STATUS_ACTIVE = 1n;
 
-const BN254_P =
-  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-
-const ENF_DOMAIN_TAG =
-  21455947405572920533869930548514094044543253524099188107381343679564123236615n;
-
 // The contract injects the withdrawal recipient as `uint256(uint160(msg.sender))`,
 // so an observer cannot copy a pending withdrawal and redirect the payout. The
 // circuit places no statement on the value beyond a constraint that keeps the
 // optimizer from deleting the signal.
 const RECIPIENT = BigInt("0x1234567890123456789012345678901234567890");
-
-function computeEnforcementNullifier(
-  ecdhPrivKey,
-  counterpartyPubKey,
-  commitment,
-) {
-  const shared = genEcdhSharedKey(ecdhPrivKey, counterpartyPubKey);
-  const k0 = poseidonHash2([shared[0], shared[1]]);
-  return poseidonHash3([commitment, k0, ENF_DOMAIN_TAG]);
-}
-
-// publicSignals[i] is SIGNAL_NAMES[i]; the same signal is witness[i + 1], because
-// witness[0] is the constant 1. Circom orders public signals by declaration order
-// in the template, not by the order of the `{ public [...] }` list, so the order
-// cannot be read off the .circom source. zkp/js/test/lib/public-signal-layout.js is
-// the authority: it pins this order against the compiled .sym, and against the
-// generated verifier's _pubSignals arity and PI_LEN_WITHDRAW in
-// solidity/contracts/lib/aenknre_codec.sol. Trailing numbers are 0-based group
-// starts, so you can check an assertion's bare index without summing the widths.
-const SIGNAL_NAMES = [
-  ["ecdhPublicKey", 2], // 0
-  ["encryptedValuesForArbiter", 16], // 2
-  ["encryptedValuesForEnforcer", 16], // 18
-  ["amount", 1], // 34
-  ["ownerNullifiers", 2], // 35
-  ["enforcementNullifiers", 2], // 37
-  ["outputCommitments[0]", 1], // 39
-  ["utxosRoot", 1], // 40
-  ["identitiesRoot", 1], // 41
-  ["complianceRoot", 1], // 42
-  ["enabledInputs", 2], // 43
-  ["encryptionNonce", 1], // 45
-  ["arbiterPublicKey", 2], // 46
-  ["enforcerPublicKey", 2], // 48
-  ["recipient", 1], // 50
-].flatMap(([name, width]) =>
-  width === 1
-    ? [name]
-    : Array.from({ length: width }, (_, i) => `${name}[${i}]`),
-);
 
 describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
   let circuit, provingKeyFile, verificationKey;
@@ -171,7 +134,7 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
 
     // the enforcement domain marks the same inputs under ECDH(owner, enforcer)
     const enforcementNullifiers = inputCommitments.map((c) =>
-      computeEnforcementNullifier(Alice.privKey, Enforcer.pubKey, c),
+      enforcementNullifier(Alice.privKey, Enforcer.pubKey, c),
     );
 
     await smtUtxo.add(input1, input1);
@@ -343,13 +306,11 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
     expect(verifyResult).to.be.false;
 
     // every public signal must be bound by the key, not merely published
-    for (let i = 0; i < publicSignals.length; i++) {
-      const swept = publicSignals.slice();
-      swept[i] = ((BigInt(swept[i]) + 1n) % BN254_P).toString();
-      expect(
-        await groth16.verify(verificationKey, swept, proof),
-        `signal ${i} (${SIGNAL_NAMES[i]}) is not bound by the verification key`,
-      ).to.be.false;
-    }
+    await expectEveryPublicSignalBound(
+      verificationKey,
+      publicSignals,
+      proof,
+      SIGNAL_NAMES,
+    );
   }).timeout(600000);
 });
