@@ -1,11 +1,27 @@
+// Copyright © 2025 Kaleido, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 import { ethers, ignition, network } from "hardhat";
 import { expect } from "chai";
 import { SmtLibModule } from "../ignition/modules/lib/deps";
 
-// Adding IZetoNullifierStorageView to NullifierStorage's inheritance chain
-// could in theory shift storage layout or break constructor/SMT init.
-// These tests deploy the modified contract and run a full spend cycle to
-// confirm the getter reads state consistent with the existing methods.
+// nullifierSpent is a view over the same state validateInputs and processInputs
+// act on. These tests run a full spend cycle to confirm the three agree: the
+// getter is false before the spend and true after it, and validateInputs
+// accepts then rejects the same nullifier.
 describe("NullifierStorage: nullifierSpent getter", function () {
   let storage: any;
 
@@ -47,28 +63,20 @@ describe("NullifierStorage: nullifierSpent getter", function () {
     await storage.processInputs([0n], false);
     expect(await storage.nullifierSpent(0n)).to.equal(false);
   });
-
-  it("BaseStorage does not expose nullifierSpent", async function () {
-    const Base = await ethers.getContractFactory("BaseStorage");
-    const base = await Base.deploy();
-    await base.waitForDeployment();
-    expect((base as any).nullifierSpent).to.be.undefined;
-  });
 });
-// RC-02: the storage backends are separately-addressed contracts. Every
-// state-mutating entry point must be callable only by the Zeto contract that
-// deployed the instance; otherwise anyone can append a leaf to the
-// authoritative UTXO tree with no proof at all, then withdraw real reserves.
+// The storage backends are separately-addressed contracts. Every state-mutating
+// entry point must be callable only by the Zeto contract that deployed the
+// instance; otherwise anyone can append a leaf to the authoritative UTXO tree
+// with no proof at all, then withdraw real reserves.
 describe("UTXO storage authorization", function () {
   let nullifierStorage: any;
   let baseStorage: any;
   let owner: any;
   let stranger: any;
 
-  // Every state-mutating entry point the storage backends still expose. The
-  // lock-delegate projection moved out of storage and into the token's own
-  // ZetoLockableStorage namespace, so `delegateLock` is no longer a storage
-  // mutator and `processLockedOutputs` no longer carries a delegate.
+  // Every state-mutating entry point the storage backends expose. The
+  // lock-delegate projection lives in the token's own ZetoLockableStorage
+  // namespace rather than in storage, so it is not among them.
   const MUTATORS: Array<[string, any[]]> = [
     ["processInputs", [[7n], false]],
     ["processOutputs", [[7n]]],
@@ -118,6 +126,11 @@ describe("UTXO storage authorization", function () {
 
     it(`NullifierStorage.${name} still accepts the owning Zeto`, async function () {
       await expect(nullifierStorage.connect(owner)[name](...args)).to.not.be
+        .reverted;
+    });
+
+    it(`BaseStorage.${name} still accepts the owning Zeto`, async function () {
+      await expect(baseStorage.connect(owner)[name](...args)).to.not.be
         .reverted;
     });
   }
