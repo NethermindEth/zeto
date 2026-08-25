@@ -974,7 +974,33 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       ).to.be.revertedWithCustomError(router, "NotAContract");
       await expect(
         router.connect(d).setTransferFacet(ethers.ZeroAddress),
-      ).to.be.revertedWith("Zero address");
+      ).to.be.revertedWithCustomError(router, "NotAContract");
+    });
+
+    it("the facet refuses its own initialize", async function () {
+      // The facet overrides initialize to revert. That is not only about the
+      // error it raises: the override is what keeps the inherited initializer
+      // body out of the facet's bytecode, worth about 6.6 KiB against the
+      // EIP-170 limit this token was split in two to respect.
+      const { transferFacet } = await deployUnconfiguredRouter();
+      const facet = await ethers.getContractAt(
+        "Zeto_AENKNRETransferFacet",
+        transferFacet,
+      );
+      await expect(
+        facet.initialize("n", "s", ethers.ZeroAddress, {
+          verifier: ethers.ZeroAddress,
+          batchVerifier: ethers.ZeroAddress,
+          depositVerifier: ethers.ZeroAddress,
+          withdrawVerifier: ethers.ZeroAddress,
+          batchWithdrawVerifier: ethers.ZeroAddress,
+          lockVerifier: ethers.ZeroAddress,
+          batchLockVerifier: ethers.ZeroAddress,
+          burnVerifier: ethers.ZeroAddress,
+          batchBurnVerifier: ethers.ZeroAddress,
+          forcedTransferVerifier: ethers.ZeroAddress,
+        } as any),
+      ).to.be.revertedWithCustomError(facet, "InitializationDisabled");
     });
 
     it("both setters accept a deployed contract", async function () {
@@ -3091,14 +3117,20 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     // the namespace slot itself; for a dynamic array that slot holds the length.
     // Reading it directly keeps the invariant observable without widening the
     // production ABI with a view helper.
-    const AENKNRE_SLOT = ethers.keccak256(
-      AbiCoder.defaultAbiCoder().encode(
-        ["uint256"],
-        [
-          BigInt(ethers.keccak256(ethers.toUtf8Bytes("zeto.storage.aenknre"))) -
-            1n,
-        ],
-      ),
+    const AENKNRE_SLOT = ethers.toBeHex(
+      BigInt(
+        ethers.keccak256(
+          AbiCoder.defaultAbiCoder().encode(
+            ["uint256"],
+            [
+              BigInt(
+                ethers.keccak256(ethers.toUtf8Bytes("zeto.storage.aenknre")),
+              ) - 1n,
+            ],
+          ),
+        ),
+      ) & ~0xffn,
+      32,
     );
 
     async function pendingLength(): Promise<bigint> {
@@ -3106,6 +3138,14 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
         await ethers.provider.getStorage(zeto.target, AENKNRE_SLOT),
       );
     }
+
+    it("the namespace slot is a well-formed ERC-7201 slot", function () {
+      // The low byte must be zero, which is what leaves room for the 256 slots
+      // a namespace may occupy and what tooling recomputing the namespace
+      // expects to find. Every read below addresses this slot, so if the mask
+      // were missing they would all be reading somewhere else.
+      expect(BigInt(AENKNRE_SLOT) & 0xffn).to.equal(0n);
+    });
 
     before(async function () {
       if ((await zeto.getEnforcer())[0] === 0n) {

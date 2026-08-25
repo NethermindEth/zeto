@@ -33,6 +33,10 @@ abstract contract ComplianceRootRegistry is
     Ownable2StepUpgradeable,
     IZetoComplianceRoot
 {
+    /// @dev Empty by design: the compliance root starts at zero and is set
+    ///   through {setComplianceRoot}. It exists so the initializer chain has
+    ///   the same shape as {Registry}'s, which does have state to establish,
+    ///   and so a future field here has somewhere to go.
     function __ComplianceRootRegistry_init() internal onlyInitializing {}
 
     /**

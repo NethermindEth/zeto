@@ -15,9 +15,7 @@
 // limitations under the License.
 pragma solidity ^0.8.27;
 
-import {Commonlib} from "./lib/common/common.sol";
 import {IAENKNRECodec} from "./lib/interfaces/IAENKNRECodec.sol";
-import {IGroth16Verifier} from "./lib/interfaces/IZetoVerifier.sol";
 import {IZetoInitializable} from "./lib/interfaces/IZetoInitializable.sol";
 import {IZetoEnforced} from "./lib/interfaces/IZetoEnforced.sol";
 import {IZetoNullifierStorageView} from "./lib/interfaces/IZetoNullifierStorageView.sol";
@@ -44,10 +42,18 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     ComplianceRootRegistry,
     IZetoEnforced
 {
-    using AENKNREStorage for *;
-
     error CodecAlreadySet();
     error FacetNotSet();
+
+    /// @dev Locks the implementation contract on construction. The inherited
+    ///   {Zeto_AnonNullifier} constructor already does this, and Solidity runs
+    ///   it as part of every leaf's deployment, but restating it here keeps the
+    ///   protection if the inheritance graph ever changes. This is the one
+    ///   contract in the pair that ends up behind a proxy.
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
 
     function _s() private pure returns (AENKNREStorage.Layout storage) {
         return AENKNREStorage.layout();
@@ -99,7 +105,6 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     }
 
     function setTransferFacet(address facet) public onlyOwner {
-        require(facet != address(0), "Zero address");
         _requireContract(facet);
         _s().transferFacet = facet;
     }
@@ -194,29 +199,29 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     // ── DELEGATECALL routing to TransferFacet ──
 
     function transfer(
-        uint256[] calldata inputs,
-        uint256[] calldata outputs,
-        bytes calldata proof,
-        bytes calldata data
+        uint256[] calldata /* inputs */,
+        uint256[] calldata /* outputs */,
+        bytes calldata /* proof */,
+        bytes calldata /* data */
     ) public virtual override {
         _forwardToFacet();
     }
 
     function deposit(
-        uint256 amount,
-        uint256[] calldata outputs,
-        bytes calldata proof,
-        bytes calldata data
+        uint256 /* amount */,
+        uint256[] calldata /* outputs */,
+        bytes calldata /* proof */,
+        bytes calldata /* data */
     ) public virtual override {
         _forwardToFacet();
     }
 
     function withdraw(
-        uint256 amount,
-        uint256[] calldata inputs,
-        uint256 output,
-        bytes calldata proof,
-        bytes calldata data
+        uint256 /* amount */,
+        uint256[] calldata /* inputs */,
+        uint256 /* output */,
+        bytes calldata /* proof */,
+        bytes calldata /* data */
     ) public virtual override {
         _forwardToFacet();
     }
@@ -227,9 +232,9 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     ///   authorising party, no per-seizure nonce and no deadline. See
     ///   `IZetoEnforced.forcedTransfer` for the full model.
     function forcedTransfer(
-        uint256[] calldata outputs,
-        bytes calldata proof,
-        bytes calldata data
+        uint256[] calldata /* outputs */,
+        bytes calldata /* proof */,
+        bytes calldata /* data */
     ) external {
         _forwardToFacet();
     }

@@ -21,6 +21,8 @@ import {IGroth16Verifier} from "./interfaces/IZetoVerifier.sol";
 /// @title AENKNREStorage — ERC-7201 namespaced storage shared by the AENKNR-E router and facet
 /// @dev Both the router and the TransferFacet import this library so they
 ///   read/write the same storage slots when the facet executes via DELEGATECALL.
+/// @dev ERC-7201 (`erc7201:zeto.storage.aenknre`): slot =
+///   `keccak256(abi.encode(uint256(keccak256(bytes("zeto.storage.aenknre"))) - 1)) & ~bytes32(uint256(0xff))`.
 library AENKNREStorage {
     struct Layout {
         uint256[] pendingEnfNullifiers;
@@ -35,7 +37,9 @@ library AENKNREStorage {
     }
 
     bytes32 private constant STORAGE_SLOT =
-        keccak256(abi.encode(uint256(keccak256("zeto.storage.aenknre")) - 1));
+        keccak256(
+            abi.encode(uint256(keccak256("zeto.storage.aenknre")) - 1)
+        ) & ~bytes32(uint256(0xff));
 
     function layout() internal pure returns (Layout storage s) {
         bytes32 slot = STORAGE_SLOT;

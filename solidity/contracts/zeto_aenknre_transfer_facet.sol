@@ -17,7 +17,6 @@ pragma solidity ^0.8.27;
 
 import {Commonlib} from "./lib/common/common.sol";
 import {IAENKNRECodec} from "./lib/interfaces/IAENKNRECodec.sol";
-import {IGroth16Verifier} from "./lib/interfaces/IZetoVerifier.sol";
 import {IZetoEnforcedEvents} from "./lib/interfaces/IZetoEnforced.sol";
 import {IZetoInitializable} from "./lib/interfaces/IZetoInitializable.sol";
 import {AENKNREStorage} from "./lib/zeto_aenknre_storage.sol";
@@ -40,7 +39,7 @@ contract Zeto_AENKNRETransferFacet is
     ComplianceRootRegistry,
     IZetoEnforcedEvents
 {
-    using AENKNREStorage for *;
+    error InitializationDisabled();
 
     struct _DecodedProof_EventFields {
         uint256[] enforcementNullifiers;
@@ -409,12 +408,17 @@ contract Zeto_AENKNRETransferFacet is
 
     // ── Disabled initialization ──
 
+    /// @dev The facet only ever runs under DELEGATECALL from the router, which
+    ///   owns the initialized state, so its own {initialize} has nothing to do.
+    ///   Overriding it is not only about the error: it keeps the inherited
+    ///   initializer body out of the facet's bytecode, which is worth about
+    ///   6.6 KiB against the EIP-170 limit that split this token in two.
     function initialize(
         string calldata,
         string calldata,
         address,
         IZetoInitializable.VerifiersInfo calldata
     ) public pure override {
-        revert("Facet: use router");
+        revert InitializationDisabled();
     }
 }
