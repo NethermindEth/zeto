@@ -126,12 +126,17 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
   // Build circuit inputs for a 2-in / 1-out withdrawal.
   // Both inputs belong to Alice; change output goes back to Alice.
   // fullWithdrawal: when true, change commitment is 0 (no change UTXO).
+  // The withdrawn amount follows from the values: it is what the inputs carry
+  // less what the change output keeps.
   async function buildWithdrawInputs(
     complianceSmt,
-    { fullWithdrawal = false } = {},
+    {
+      fullWithdrawal = false,
+      inputValues = [32, 40],
+      outputValues = null,
+    } = {},
   ) {
-    const inputValues = [32, 40];
-    const outputValues = fullWithdrawal ? [0] : [2];
+    outputValues = outputValues || (fullWithdrawal ? [0] : [2]);
     const amount = inputValues[0] + inputValues[1] - outputValues[0];
 
     const salt1 = newSalt();
@@ -401,99 +406,20 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
 
     // amount=0: all value goes to the change output. This used to be a
     // note-washing vulnerability when the arbiter had no ciphertext.
-    const inputValues = [10, 20];
-    const outputValues = [30]; // amount = 30 - 30 = 0
-    const amount = 0;
-
-    const salt1 = newSalt();
-    const input1 = poseidonHash([
-      BigInt(inputValues[0]),
-      salt1,
-      ...Alice.pubKey,
-    ]);
-    const salt2 = newSalt();
-    const input2 = poseidonHash([
-      BigInt(inputValues[1]),
-      salt2,
-      ...Alice.pubKey,
-    ]);
-
-    const ownerNullifiers = [
-      poseidonHash3([BigInt(inputValues[0]), salt1, senderPrivateKey]),
-      poseidonHash3([BigInt(inputValues[1]), salt2, senderPrivateKey]),
-    ];
-    const enforcementNullifiers = [
-      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input1),
-      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input2),
-    ];
-
-    await smtUtxo.add(input1, input1);
-    await smtUtxo.add(input2, input2);
-    const utxoProof1 = await smtUtxo.generateCircomVerifierProof(
-      input1,
-      ZERO_HASH,
-    );
-    const utxoProof2 = await smtUtxo.generateCircomVerifierProof(
-      input2,
-      ZERO_HASH,
-    );
-
-    const salt3 = newSalt();
-    const output1 = poseidonHash([
-      BigInt(outputValues[0]),
-      salt3,
-      ...Alice.pubKey,
-    ]);
-    const encryptionNonce = newEncryptionNonce();
-    const ephemeralKeypair = genKeypair();
-    const kycProofAlice = await smtKYC.generateCircomVerifierProof(
-      poseidonHash2(Alice.pubKey),
-      ZERO_HASH,
-    );
-    const compProofAlice =
-      await smtComplianceAllActive.generateCircomVerifierProof(
-        poseidonHash2(Alice.pubKey),
-        ZERO_HASH,
-      );
-
-    const circuitInputs = {
-      amount,
-      ownerNullifiers,
-      enforcementNullifiers,
-      outputCommitments: [output1],
-      utxosRoot: utxoProof1.root.bigInt(),
-      identitiesRoot: kycProofAlice.root.bigInt(),
-      complianceRoot: compProofAlice.root.bigInt(),
-      enabledInputs: [1, 1],
-      arbiterPublicKey: Arbiter.pubKey,
-      enforcerPublicKey: Enforcer.pubKey,
-      recipient: RECIPIENT,
-      inputCommitments: [input1, input2],
+    const {
+      circuitInputs,
       inputValues,
-      inputSalts: [salt1, salt2],
-      inputOwnerPrivateKey: senderPrivateKey,
-      utxosMerkleProof: [
-        utxoProof1.siblings.map((s) => s.bigInt()),
-        utxoProof2.siblings.map((s) => s.bigInt()),
-      ],
-      identitiesMerkleProof: [
-        kycProofAlice.siblings.map((s) => s.bigInt()),
-        kycProofAlice.siblings.map((s) => s.bigInt()),
-      ],
-      complianceMerkleProof: [
-        compProofAlice.siblings.map((s) => s.bigInt()),
-        compProofAlice.siblings.map((s) => s.bigInt()),
-      ],
       outputValues,
-      outputSalts: [salt3],
-      outputOwnerPublicKeys: [Alice.pubKey],
-      ...stringifyBigInts({
-        encryptionNonce,
-        ecdhPrivateKey: formatPrivKeyForBabyJub(ephemeralKeypair.privKey),
-      }),
-    };
+      salts,
+      encryptionNonce,
+      ephemeralKeypair,
+    } = await buildWithdrawInputs(smtComplianceAllActive, {
+      inputValues: [10, 20],
+      outputValues: [30], // amount = 30 - 30 = 0
+    });
 
     const witness = await circuit.calculateWitness(circuitInputs, true);
+    await circuit.checkConstraints(witness);
 
     // amount == 0 is valid (value conservation: 30 == 0 + 30)
     expect(witness[pi("amount")]).to.equal(0n);
@@ -514,7 +440,7 @@ describe("withdraw_nullifier_kyc_enforced circuit tests", () => {
     expect(arbiterPlainText[2]).to.equal(BigInt(inputValues[0])); // input preimages visible
     expect(arbiterPlainText[4]).to.equal(BigInt(inputValues[1]));
     expect(arbiterPlainText[10]).to.equal(BigInt(outputValues[0])); // change output visible
-    expect(arbiterPlainText[11]).to.equal(salt3);
+    expect(arbiterPlainText[11]).to.equal(salts.salt3);
   });
 
   it("should fail when a disabled input slot carries value", async function () {

@@ -147,12 +147,19 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
     );
   });
 
-  // Build full circuit inputs for a standard 2-in / 2-out transfer.
+  // Build full circuit inputs for a 2-in / 2-out transfer.
+  //
+  // An output slot is disabled by passing `null` in its position in
+  // `outputRecipients`: its commitment and salt become zero and its identity
+  // and compliance proofs become the zero-filled slot the circuit expects.
+  //
   // Returns circuitInputs plus metadata so individual tests can tweak specific
   // fields before passing to calculateWitness.
-  async function buildHappyPathInputs(complianceSmt) {
+  async function buildHappyPathInputs(
+    complianceSmt,
+    { outputValues = [20, 52], outputRecipients = [Bob, Alice] } = {},
+  ) {
     const inputValues = [32, 40];
-    const outputValues = [20, 52];
 
     // create two input UTXOs, each has their own salt, but same owner
     const salt1 = newSalt();
@@ -210,20 +217,21 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
     );
     const utxosRoot = utxoProof1.root.bigInt();
 
-    // create two output UTXOs with different owners
-    const salt3 = newSalt();
-    const output1 = poseidonHash([
-      BigInt(outputValues[0]),
-      salt3,
-      ...Bob.pubKey,
-    ]);
-    const salt4 = newSalt();
-    const output2 = poseidonHash([
-      BigInt(outputValues[1]),
-      salt4,
-      ...Alice.pubKey,
-    ]);
-    const outputCommitments = [output1, output2];
+    // create the output UTXOs. A disabled slot carries a zero commitment and a
+    // zero salt; its owner key is inert, because the curve check is fed the
+    // Base8 padding instead, the KYC and compliance keys are zeroed and
+    // CheckHashes is gated off by the zero commitment. The first recipient's
+    // key stands in so the fixture stays readable.
+    const outputSalts = outputRecipients.map((r) => (r ? newSalt() : 0n));
+    const outputCommitments = outputRecipients.map((r, i) =>
+      r
+        ? poseidonHash([BigInt(outputValues[i]), outputSalts[i], ...r.pubKey])
+        : 0n,
+    );
+    const outputOwnerPublicKeys = outputRecipients.map(
+      (r) => (r || outputRecipients.find(Boolean)).pubKey,
+    );
+    const [salt3, salt4] = outputSalts;
 
     const encryptionNonce = newEncryptionNonce();
     const ephemeralKeypair = genKeypair();
@@ -232,27 +240,39 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
       ecdhPrivateKey: formatPrivKeyForBabyJub(ephemeralKeypair.privKey),
     });
 
-    // generate the merkle proof for the transacting identities
-    const kycProofAlice = await smtKYC.generateCircomVerifierProof(
-      poseidonHash2(Alice.pubKey),
-      ZERO_HASH,
-    );
-    const kycProofBob = await smtKYC.generateCircomVerifierProof(
-      poseidonHash2(Bob.pubKey),
-      ZERO_HASH,
-    );
-    const identitiesRoot = kycProofAlice.root.bigInt();
+    // generate the merkle proofs for the sender and for each live recipient.
+    // The proof array is [sender, output 0 owner, output 1 owner]; a disabled
+    // slot's gated key is (0, 0), which switches its inclusion check off, so it
+    // gets the zero-filled proof the circuit expects there.
+    const siblings = (proof, height) =>
+      proof
+        ? proof.siblings.map((sibling) => sibling.bigInt())
+        : Array(height).fill(0n);
 
-    // generate the merkle proof for compliance status
-    const compProofAlice = await complianceSmt.generateCircomVerifierProof(
-      poseidonHash2(Alice.pubKey),
-      ZERO_HASH,
-    );
-    const compProofBob = await complianceSmt.generateCircomVerifierProof(
-      poseidonHash2(Bob.pubKey),
-      ZERO_HASH,
-    );
+    const kycProof = (party) =>
+      smtKYC.generateCircomVerifierProof(
+        poseidonHash2(party.pubKey),
+        ZERO_HASH,
+      );
+    const compProof = (party) =>
+      complianceSmt.generateCircomVerifierProof(
+        poseidonHash2(party.pubKey),
+        ZERO_HASH,
+      );
+
+    const kycProofAlice = await kycProof(Alice);
+    const identitiesRoot = kycProofAlice.root.bigInt();
+    const kycProofOutputs = [];
+    for (const r of outputRecipients) {
+      kycProofOutputs.push(r ? await kycProof(r) : null);
+    }
+
+    const compProofAlice = await compProof(Alice);
     const complianceRoot = compProofAlice.root.bigInt();
+    const compProofOutputs = [];
+    for (const r of outputRecipients) {
+      compProofOutputs.push(r ? await compProof(r) : null);
+    }
 
     const circuitInputs = {
       ownerNullifiers,
@@ -269,20 +289,18 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
       enabledInputs: [1, 1],
       identitiesRoot,
       identitiesMerkleProof: [
-        kycProofAlice.siblings.map((s) => s.bigInt()),
-        kycProofBob.siblings.map((s) => s.bigInt()),
-        kycProofAlice.siblings.map((s) => s.bigInt()),
+        siblings(kycProofAlice, SMT_HEIGHT_IDENTITY),
+        ...kycProofOutputs.map((p) => siblings(p, SMT_HEIGHT_IDENTITY)),
       ],
       complianceRoot,
       complianceMerkleProof: [
-        compProofAlice.siblings.map((s) => s.bigInt()),
-        compProofBob.siblings.map((s) => s.bigInt()),
-        compProofAlice.siblings.map((s) => s.bigInt()),
+        siblings(compProofAlice, SMT_HEIGHT_COMPLIANCE),
+        ...compProofOutputs.map((p) => siblings(p, SMT_HEIGHT_COMPLIANCE)),
       ],
       outputCommitments,
       outputValues,
-      outputSalts: [salt3, salt4],
-      outputOwnerPublicKeys: [Bob.pubKey, Alice.pubKey],
+      outputSalts,
+      outputOwnerPublicKeys,
       arbiterPublicKey: Arbiter.pubKey,
       enforcerPublicKey: Enforcer.pubKey,
       ...encryptInputs,
@@ -370,42 +388,39 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
     expect(witness[pi("enforcerPublicKey[0]")]).to.equal(Enforcer.pubKey[0]);
     expect(witness[pi("enforcerPublicKey[1]")]).to.equal(Enforcer.pubKey[1]);
 
-    // take the output from the proof circuit and attempt to decrypt
-    // as the receiver (Bob decrypts output 1)
-    let cipherText = witness.slice(3, 7);
-    let recoveredKey = genEcdhSharedKey(Bob.privKey, ephemeralKeypair.pubKey);
-    let plainText = poseidonDecrypt(
-      cipherText,
-      recoveredKey,
-      encryptionNonce,
-      2,
-    );
-    expect(plainText).to.deep.equal([BigInt(outputValues[0]), salts.salt3]);
-
-    // decrypting the second utxo should fail as it belongs to the sender
-    cipherText = witness.slice(7, 11);
-    recoveredKey = genEcdhSharedKey(Bob.privKey, ephemeralKeypair.pubKey);
-    expect(function () {
-      plainText = poseidonDecrypt(cipherText, recoveredKey, encryptionNonce, 2);
-    }).to.throw(
-      "The last ciphertext element must match the second item of the permuted state",
-    );
-
-    // decrypt using the sender's key should succeed
-    recoveredKey = genEcdhSharedKey(Alice.privKey, ephemeralKeypair.pubKey);
-    plainText = poseidonDecrypt(cipherText, recoveredKey, encryptionNonce, 2);
-    expect(plainText).to.deep.equal([BigInt(outputValues[1]), salts.salt4]);
-
-    // take the output from the proof circuit and attempt to decrypt
-    // as the arbiter (14-element authority plaintext)
-    const recoveredKey2 = genEcdhSharedKey(
+    const bobKey = genEcdhSharedKey(Bob.privKey, ephemeralKeypair.pubKey);
+    const aliceKey = genEcdhSharedKey(Alice.privKey, ephemeralKeypair.pubKey);
+    const arbiterKey = genEcdhSharedKey(
       Arbiter.privKey,
       ephemeralKeypair.pubKey,
     );
+    const enforcerKey = genEcdhSharedKey(
+      Enforcer.privKey,
+      ephemeralKeypair.pubKey,
+    );
+
+    // Bob is the recipient of output 1 and can open its stream.
+    const receiverCipherText1 = witness.slice(3, 7);
+    expect(
+      poseidonDecrypt(receiverCipherText1, bobKey, encryptionNonce, 2),
+    ).to.deep.equal([BigInt(outputValues[0]), salts.salt3]);
+
+    // Output 2 goes back to the sender, so Bob's key must not open it.
+    const receiverCipherText2 = witness.slice(7, 11);
+    expect(function () {
+      poseidonDecrypt(receiverCipherText2, bobKey, encryptionNonce, 2);
+    }).to.throw(
+      "The last ciphertext element must match the second item of the permuted state",
+    );
+    expect(
+      poseidonDecrypt(receiverCipherText2, aliceKey, encryptionNonce, 2),
+    ).to.deep.equal([BigInt(outputValues[1]), salts.salt4]);
+
+    // The arbiter's stream carries the full 14-element authority plaintext.
     const cipherText2 = witness.slice(11, 27);
     const plainText2 = poseidonDecrypt(
       cipherText2,
-      recoveredKey2,
+      arbiterKey,
       encryptionNonce,
       14,
     );
@@ -426,29 +441,18 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
       salts.salt4,
     ]);
 
-    // take the output from the proof circuit and attempt to decrypt
-    // as the enforcer (same plaintext, different ECDH key)
-    const recoveredKey3 = genEcdhSharedKey(
-      Enforcer.privKey,
-      ephemeralKeypair.pubKey,
-    );
+    // The enforcer's stream carries the same plaintext under a different key.
     const cipherText3 = witness.slice(27, 43);
-    const plainText3 = poseidonDecrypt(
-      cipherText3,
-      recoveredKey3,
-      encryptionNonce,
-      14,
-    );
-    expect(plainText3).to.deep.equal(plainText2);
+    expect(
+      poseidonDecrypt(cipherText3, enforcerKey, encryptionNonce, 14),
+    ).to.deep.equal(plainText2);
 
-    // non-authority cannot decrypt arbiter ciphertext
+    // The sender is not an authority and can open neither authority stream.
     expect(function () {
-      poseidonDecrypt(cipherText2, recoveredKey, encryptionNonce, 14);
+      poseidonDecrypt(cipherText2, aliceKey, encryptionNonce, 14);
     }).to.throw();
-
-    // non-authority cannot decrypt enforcer ciphertext
     expect(function () {
-      poseidonDecrypt(cipherText3, recoveredKey, encryptionNonce, 14);
+      poseidonDecrypt(cipherText3, aliceKey, encryptionNonce, 14);
     }).to.throw();
   });
 
@@ -511,135 +515,13 @@ describe("main circuit tests for Zeto fungible tokens with encryption, KYC, non-
   it("should succeed for valid witness with a disabled output slot", async function () {
     this.timeout(60000);
 
-    const inputValues = [32, 40];
-    const outputValues = [72, 0]; // second output disabled
-
-    // create two input UTXOs, each has their own salt, but same owner
-    const salt1 = newSalt();
-    const input1 = poseidonHash([
-      BigInt(inputValues[0]),
-      salt1,
-      ...Alice.pubKey,
-    ]);
-    const salt2 = newSalt();
-    const input2 = poseidonHash([
-      BigInt(inputValues[1]),
-      salt2,
-      ...Alice.pubKey,
-    ]);
-    const inputCommitments = [input1, input2];
-
-    // create the owner nullifiers for the inputs
-    const ownerNullifiers = [
-      poseidonHash3([BigInt(inputValues[0]), salt1, senderPrivateKey]),
-      poseidonHash3([BigInt(inputValues[1]), salt2, senderPrivateKey]),
-    ];
-
-    // create the enforcement nullifiers
-    const enforcementNullifiers = [
-      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input1),
-      enforcementNullifier(Alice.privKey, Enforcer.pubKey, input2),
-    ];
-
-    // calculate the root of the UTXO SMT
-    await smtUtxo.add(input1, input1);
-    await smtUtxo.add(input2, input2);
-
-    // generate the merkle proof for the inputs
-    const utxoProof1 = await smtUtxo.generateCircomVerifierProof(
-      input1,
-      ZERO_HASH,
-    );
-    const utxoProof2 = await smtUtxo.generateCircomVerifierProof(
-      input2,
-      ZERO_HASH,
+    const { circuitInputs } = await buildHappyPathInputs(
+      smtComplianceAllActive,
+      { outputValues: [72, 0], outputRecipients: [Bob, null] },
     );
 
-    // create output UTXOs: first is real, second is disabled
-    const salt3 = newSalt();
-    const output1 = poseidonHash([
-      BigInt(outputValues[0]),
-      salt3,
-      ...Bob.pubKey,
-    ]);
-    const outputCommitments = [output1, 0n];
-
-    const encryptionNonce = newEncryptionNonce();
-    const ephemeralKeypair = genKeypair();
-    const encryptInputs = stringifyBigInts({
-      encryptionNonce,
-      ecdhPrivateKey: formatPrivKeyForBabyJub(ephemeralKeypair.privKey),
-    });
-
-    // generate the merkle proof for the transacting identities;
-    // output 2 is disabled -> gated key becomes (0,0) -> pubkey-zero gating skips SMT
-    const kycProofAlice = await smtKYC.generateCircomVerifierProof(
-      poseidonHash2(Alice.pubKey),
-      ZERO_HASH,
-    );
-    const kycProofBob = await smtKYC.generateCircomVerifierProof(
-      poseidonHash2(Bob.pubKey),
-      ZERO_HASH,
-    );
-
-    // generate the merkle proof for compliance status
-    const compProofAlice =
-      await smtComplianceAllActive.generateCircomVerifierProof(
-        poseidonHash2(Alice.pubKey),
-        ZERO_HASH,
-      );
-    const compProofBob =
-      await smtComplianceAllActive.generateCircomVerifierProof(
-        poseidonHash2(Bob.pubKey),
-        ZERO_HASH,
-      );
-
-    const witness = await circuit.calculateWitness(
-      {
-        ownerNullifiers,
-        enforcementNullifiers,
-        inputCommitments,
-        inputValues,
-        inputSalts: [salt1, salt2],
-        inputOwnerPrivateKey: senderPrivateKey,
-        utxosRoot: utxoProof1.root.bigInt(),
-        utxosMerkleProof: [
-          utxoProof1.siblings.map((s) => s.bigInt()),
-          utxoProof2.siblings.map((s) => s.bigInt()),
-        ],
-        enabledInputs: [1, 1],
-        identitiesRoot: kycProofAlice.root.bigInt(),
-        identitiesMerkleProof: [
-          kycProofAlice.siblings.map((s) => s.bigInt()),
-          kycProofBob.siblings.map((s) => s.bigInt()),
-          Array(SMT_HEIGHT_IDENTITY).fill(0n), // disabled slot
-        ],
-        complianceRoot: compProofAlice.root.bigInt(),
-        complianceMerkleProof: [
-          compProofAlice.siblings.map((s) => s.bigInt()),
-          compProofBob.siblings.map((s) => s.bigInt()),
-          Array(SMT_HEIGHT_COMPLIANCE).fill(0n), // disabled slot
-        ],
-        outputCommitments,
-        outputValues,
-        outputSalts: [salt3, 0n],
-        // A disabled slot's owner key is inert: the curve check is fed the
-        // Base8 padding instead of this value, the KYC/compliance key is zeroed,
-        // and CheckHashes is gated off by the zero commitment. Any value works;
-        // a real key is used only to keep the fixture readable.
-        outputOwnerPublicKeys: [Bob.pubKey, Bob.pubKey],
-        arbiterPublicKey: Arbiter.pubKey,
-        enforcerPublicKey: Enforcer.pubKey,
-        ...encryptInputs,
-      },
-      true,
-    );
-
-    // console.log('witness', witness.slice(0, 60));
-
-    // witness[pi("outputCommitments[1]")] is outputCommitments[1] per the .sym; witness[pi("enabledInputs[0]")] is
-    // enabledInputs[0], which is 1 here.
-    expect(witness[pi("outputCommitments[1]")]).to.equal(0n);
+    const witness = await circuit.calculateWitness(circuitInputs, true);
+    await circuit.checkConstraints(witness);
   });
 
   // Rebuild the two output commitments so CheckSum is satisfied by `values`.
