@@ -807,8 +807,8 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
         "Zeto_AnonEncNullifierKycNonRepudiationEnforced",
       );
 
-      // Before the fix this call succeeded, latching enforcerSet = true with an
-      // unusable key and bricking every proof path irreversibly.
+      // setEnforcer is irreversible, so a key off the curve would latch
+      // enforcerSet = true and leave every proof path permanently unusable.
       await expect(fresh.connect(d).setEnforcer([0n, 1n]))
         .to.be.revertedWithCustomError(fresh, "InvalidBabyJubKey")
         .withArgs(0n, 1n);
@@ -947,17 +947,16 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       ).wait();
       const eoa = await eoaAddress();
 
-      // Before the fix this call succeeded, and DELEGATECALL to a codeless
-      // account then returned success with zero return data.
+      // DELEGATECALL to a codeless account returns success with zero return
+      // data, so the facet address has to be checked for code when it is set.
       await expect(fresh.connect(d).setTransferFacet(eoa))
         .to.be.revertedWithCustomError(fresh, "NotAContract")
         .withArgs(eoa);
 
       // The real facet is therefore still installed, so transfer reaches it and
-      // rejects the bogus proof. Before the fix the facet was the EOA and this
-      // transaction produced a status-1 receipt with no event and no state
-      // change -- which the Paladin domain plugin reads as a completed
-      // transfer.
+      // rejects the bogus proof. Had the EOA been accepted, this transaction
+      // would produce a status-1 receipt with no event and no state change,
+      // which a domain plugin reads as a completed transfer.
       await expect(
         fresh.connect(Alice.signer).transfer([1], [1], dummyProof, "0x"),
       ).to.be.reverted;
@@ -967,11 +966,9 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       const { d, router, codec } = await deployUnconfiguredRouter();
       const eoa = await eoaAddress();
 
-      // Before the fix this call latched a codeless codec permanently:
-      // `_callCodec`'s STATICCALL would return ok == 1 with zero return data,
-      // `require(ok, "Codec call failed")` would pass, and the assembly
-      // readers would run off the end of an empty buffer -- with no way to
-      // replace the codec short of a UUPS upgrade.
+      // The codec slot is set-once, so a codeless address would latch
+      // permanently: a STATICCALL to it returns success with zero return data,
+      // and there is no way to replace the codec short of a UUPS upgrade.
       await expect(router.connect(d).setCodec(eoa))
         .to.be.revertedWithCustomError(router, "NotAContract")
         .withArgs(eoa);
@@ -2447,7 +2444,7 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     });
   });
 
-  // ── codec proof-field arity (RC-01 / report IDs 7, 8, 9; ID 1 negative case) ──
+  // ── codec proof-field arity ──
 
   describe("codec proof-field arity", function () {
     // Every AENKNR-E circuit has a fixed public-signal layout. The codec fills a
@@ -2741,8 +2738,8 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     });
 
     it("buildDeposit rejects a third output commitment", async function () {
-      // Report ID 1: the facet binds every output, so a third output previously
-      // ran `pi` past its 52 slots and panicked. It is now an explicit arity revert.
+      // The facet binds every output, so a third output would run `pi` past its
+      // 52 slots. The codec refuses the arity instead of panicking.
       await expect(
         codec.buildDeposit(
           depositProof(),
@@ -2888,7 +2885,7 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     });
   });
 
-  // ── withdraw checks-effects-interactions (RC-03 / report IDs 5A, 12, 15) ──
+  // ── withdraw checks-effects-interactions ──
 
   describe("withdraw reentrancy", function () {
     let malicious: any;
@@ -3126,7 +3123,7 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     });
   });
 
-  // ── enforcement-nullifier staging lifecycle (RC-04 / invariant 11) ──
+  // ── enforcement-nullifier staging lifecycle ──
 
   describe("pending enforcement-nullifier staging", function () {
     // `pendingEnfNullifiers` is field 0 of the ERC-7201 Layout, so it lives at
@@ -3345,7 +3342,7 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     });
   });
 
-  // ── deposit collateral conservation (RC-05 / report IDs 3, 13, 17) ──
+  // ── deposit collateral conservation ──
 
   describe("deposit collateral", function () {
     let feeToken: any;
@@ -3519,7 +3516,7 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     });
   });
 
-  // ── withdrawal recipient binding (RC-06 / report ID 6) ──
+  // ── withdrawal recipient binding ──
 
   describe("withdraw recipient binding", function () {
     before(async function () {
@@ -3648,7 +3645,7 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     });
   });
 
-  // ── inherited lock paths (invariant 3 / report ID 4) ──
+  // ── inherited lock paths ──
 
   describe("inherited lock paths", function () {
     // The enforced token does not support locking. There is no locked-transfer

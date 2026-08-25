@@ -100,6 +100,20 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         }
     }
 
+    /**
+     * @dev Bind the codec that assembles the public-signal vector for every
+     *      proof path. One-shot: a subsequent call reverts with
+     *      {CodecAlreadySet}.
+     *
+     *      Rationale: the codec decides which proof field lands in which `pi`
+     *      slot, so replacing it would change what a verified proof is taken to
+     *      have said, for notes that already exist. One-shot removes that
+     *      entirely while still allowing the operator to wire the pairing up
+     *      after deployment. It is reached by STATICCALL, so it cannot write
+     *      this contract's storage.
+     *
+     * @param codec The codec to bind. Must hold code.
+     */
     function setCodec(address codec) public onlyOwner {
         if (address(_s().codec) != address(0)) {
             revert CodecAlreadySet();
@@ -108,6 +122,20 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         _s().codec = IAENKNRECodec(codec);
     }
 
+    /**
+     * @dev Bind the facet the proof paths are forwarded to. Replaceable, unlike
+     *      {setCodec}, because the facet carries the transfer, deposit,
+     *      withdraw and forcedTransfer implementations and a defect in any of
+     *      them has to be fixable without a UUPS upgrade of the router.
+     *
+     *      The facet is reached by DELEGATECALL and therefore has full control
+     *      of this contract's storage. That is strictly more power than the
+     *      codec has, so the ability to replace it is a deliberate trade: the
+     *      owner is already trusted with {forcedTransfer} and with UUPS
+     *      upgrades, both of which can do at least as much.
+     *
+     * @param facet The transfer facet to bind. Must hold code.
+     */
     function setTransferFacet(address facet) public onlyOwner {
         _requireContract(facet);
         _s().transferFacet = facet;
@@ -150,6 +178,18 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         }
     }
 
+    /**
+     * @dev Set the arbiter BabyJubJub public key that every proof encrypts an
+     *      authority stream to. Replaceable, and each change bumps the key id
+     *      so an indexer can tell which key a past ciphertext was sealed to.
+     *
+     *      Ciphertexts already on chain stay readable only by the key in force
+     *      when they were produced; rotating the arbiter does not re-key them.
+     *
+     * @param newKey The arbiter public key. Must be a point on BabyJubJub.
+     *
+     * Emits {ArbiterUpdated}.
+     */
     function setArbiter(uint256[2] memory newKey) public onlyOwner {
         _requireValidBabyJubKey(newKey);
         AENKNREStorage.Layout storage s = _s();
