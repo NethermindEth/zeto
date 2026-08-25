@@ -2735,7 +2735,9 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
           ),
           "0x",
         ),
-      ).to.be.revertedWith("Codec call failed");
+      )
+        .to.be.revertedWithCustomError(codec, "InvalidProofFieldArity")
+        .withArgs(ENC_AUTHORITY, ENC_AUTHORITY + 2);
 
       // The notes stayed spent and no new commitment was created.
       expect(await zeto.ownerNullifierSpent(enfN[0])).to.be.false;

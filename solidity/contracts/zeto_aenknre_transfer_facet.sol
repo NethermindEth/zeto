@@ -27,6 +27,7 @@ import {ComplianceRootRegistry} from "./lib/compliance_root_registry.sol";
 import {IZetoLockableCapability} from "./lib/interfaces/IZetoLockableCapability.sol";
 import {ZetoFungibleStorage} from "./lib/zeto_fungible.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 /// @title AENKNR-E Transfer Facet
 /// @dev Implements the four proof paths (transfer, deposit, withdraw,
@@ -50,19 +51,8 @@ contract Zeto_AENKNRETransferFacet is
         uint256[] encryptedValuesForEnforcer;
     }
 
-    /// @dev The four AENKNR-E circuits all expose exactly two enforcement
-    ///   nullifier signals. The codec enforces every proof-field arity, but the
-    ///   facet parses the codec's return buffer with raw assembly, so it must not
-    ///   trust that arity implicitly before writing to persistent storage.
-    uint256 private constant ENF_NULLIFIERS_LEN = 2;
-
     function _s() private pure returns (AENKNREStorage.Layout storage) {
         return AENKNREStorage.layout();
-    }
-
-    function _requireEnfArity(uint256[] memory enfN) private pure {
-        if (enfN.length != ENF_NULLIFIERS_LEN)
-            revert InvalidEnforcementNullifierArity(ENF_NULLIFIERS_LEN, enfN.length);
     }
 
     function _requireEnforcerSet() private view {
@@ -81,90 +71,23 @@ contract Zeto_AENKNRETransferFacet is
 
     // ── Codec interaction ──
     //
-    // The codec is an external contract called via STATICCALL. Return data
-    // is parsed with assembly helpers rather than Solidity's ABI decoder.
-    //
-    // Return ABI layouts (word indices):
-    //   buildTransfer:       [0:off_pi, 1:off_enfN, 2-9:proofWords]
-    //   buildDeposit:        [0:off_pi, 1-8:proofWords]
-    //   buildWithdraw:       [0:off_pi, 1:off_enfN, 2-9:proofWords]
-    //   buildForcedTransfer: [0:off_pi, 1:off_enfN, 2:root, 3-10:proofWords]
+    // The codec is an external contract called via STATICCALL. Its return data
+    // is decoded with abi.decode against each builder's declared return tuple,
+    // so a malformed buffer reverts rather than being read past its bounds, and
+    // the codec's own custom errors reach the caller unchanged.
 
     function _callCodec(
         bytes memory callData
-    ) private view returns (bytes memory ret) {
-        address codec = address(_s().codec);
-        bool ok;
-        /// @solidity memory-safe-assembly
-        assembly {
-            let cdLen := mload(callData)
-            let cdPtr := add(callData, 0x20)
-            ok := staticcall(gas(), codec, cdPtr, cdLen, 0, 0)
-            let rLen := returndatasize()
-            ret := mload(0x40)
-            mstore(ret, rLen)
-            mstore(0x40, add(add(ret, 0x20), rLen))
-            returndatacopy(add(ret, 0x20), 0, rLen)
-        }
-        require(ok, "Codec call failed");
+    ) private view returns (bytes memory) {
+        return Address.functionStaticCall(address(_s().codec), callData);
     }
 
     function _toProof(
-        bytes memory ret,
-        uint256 pwHead
+        uint256[8] memory w
     ) private pure returns (Commonlib.Proof memory ps) {
-        uint256 base;
-        /// @solidity memory-safe-assembly
-        assembly {
-            base := add(add(ret, 0x20), mul(pwHead, 0x20))
-        }
-        ps.pA[0] = _wordAt(base, 0);
-        ps.pA[1] = _wordAt(base, 1);
-        ps.pB[0][0] = _wordAt(base, 2);
-        ps.pB[0][1] = _wordAt(base, 3);
-        ps.pB[1][0] = _wordAt(base, 4);
-        ps.pB[1][1] = _wordAt(base, 5);
-        ps.pC[0] = _wordAt(base, 6);
-        ps.pC[1] = _wordAt(base, 7);
-    }
-
-    function _wordAt(uint256 base, uint256 idx) private pure returns (uint256 v) {
-        /// @solidity memory-safe-assembly
-        assembly {
-            v := mload(add(base, mul(idx, 0x20)))
-        }
-    }
-
-    function _readDynArray(
-        bytes memory data,
-        uint256 headIdx
-    ) private pure returns (uint256[] memory arr) {
-        /// @solidity memory-safe-assembly
-        assembly {
-            let base := add(data, 0x20)
-            let offset := mload(add(base, mul(headIdx, 0x20)))
-            let arrSrc := add(base, offset)
-            let len := mload(arrSrc)
-            arr := mload(0x40)
-            let sz := add(0x20, mul(len, 0x20))
-            mstore(0x40, add(arr, sz))
-            mstore(arr, len)
-            let s := add(arrSrc, 0x20)
-            let d := add(arr, 0x20)
-            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
-                mstore(add(d, mul(i, 0x20)), mload(add(s, mul(i, 0x20))))
-            }
-        }
-    }
-
-    function _readWord(
-        bytes memory data,
-        uint256 headIdx
-    ) private pure returns (uint256 v) {
-        /// @solidity memory-safe-assembly
-        assembly {
-            v := mload(add(add(data, 0x20), mul(headIdx, 0x20)))
-        }
+        ps.pA = [w[0], w[1]];
+        ps.pB = [[w[2], w[3]], [w[4], w[5]]];
+        ps.pC = [w[6], w[7]];
     }
 
     // ── Enforcement nullifiers ──
@@ -202,63 +125,23 @@ contract Zeto_AENKNRETransferFacet is
 
     // ── Args encoding ──
     //
-    // The codec accepts (bytes proof, bytes args). The args parameter is
-    // constructed as: abi.encode(params...) ++ rawCtx(192 bytes).
-    // The codec splits the decode accordingly.
+    // The codec accepts (bytes proof, bytes args), where args is
+    // abi.encode(params...) followed by the 192-byte ProofContext tail. The
+    // codec splits the decode at that boundary.
 
-    function _encodeArgs(
-        bytes memory head,
-        bytes memory ctx
-    ) private pure returns (bytes memory buf) {
-        /// @solidity memory-safe-assembly
-        assembly {
-            let hLen := mload(head)
-            let cLen := mload(ctx)
-            let totalLen := add(hLen, cLen)
-            buf := mload(0x40)
-            mstore(buf, totalLen)
-            mstore(0x40, add(add(buf, 0x20), totalLen))
-            let d := add(buf, 0x20)
-            let s := add(head, 0x20)
-            for { let i := 0 } lt(i, hLen) { i := add(i, 0x20) } {
-                mstore(add(d, i), mload(add(s, i)))
-            }
-            let d2 := add(d, hLen)
-            let s2 := add(ctx, 0x20)
-            for { let i := 0 } lt(i, cLen) { i := add(i, 0x20) } {
-                mstore(add(d2, i), mload(add(s2, i)))
-            }
-        }
-    }
-
-    /// @dev Encodes ProofContext as 6 raw words:
+    /// @dev Encodes ProofContext as its 6 constituent words:
     ///   [idRoot, compRoot, arbiterPub[0], arbiterPub[1], enforcerPub[0], enforcerPub[1]]
-    function _encodeCtx() private view returns (bytes memory buf) {
+    function _encodeCtx() private view returns (bytes memory) {
         AENKNREStorage.Layout storage s = _s();
-        /// @solidity memory-safe-assembly
-        assembly {
-            buf := mload(0x40)
-            mstore(buf, 192)
-            mstore(0x40, add(add(buf, 0x20), 192))
-        }
-        uint256 v = getIdentitiesRoot();
-        /// @solidity memory-safe-assembly
-        assembly { mstore(add(buf, 0x20), v) }
-        v = getComplianceRoot();
-        /// @solidity memory-safe-assembly
-        assembly { mstore(add(buf, 0x40), v) }
-        v = s.arbiterPub[0];
-        /// @solidity memory-safe-assembly
-        assembly { mstore(add(buf, 0x60), v) }
-        v = s.arbiterPub[1];
-        /// @solidity memory-safe-assembly
-        assembly { mstore(add(buf, 0x80), v) }
-        v = s.enforcerPub[0];
-        /// @solidity memory-safe-assembly
-        assembly { mstore(add(buf, 0xa0), v) }
-        v = s.enforcerPub[1];
-        /// @solidity memory-safe-assembly
-        assembly { mstore(add(buf, 0xc0), v) }
+        return
+            abi.encode(
+                getIdentitiesRoot(),
+                getComplianceRoot(),
+                s.arbiterPub[0],
+                s.arbiterPub[1],
+                s.enforcerPub[0],
+                s.enforcerPub[1]
+            );
     }
 
     // ── Public input construction overrides ──
@@ -271,15 +154,21 @@ contract Zeto_AENKNRETransferFacet is
     ) internal virtual override returns (uint256[] memory, Commonlib.Proof memory) {
         _requireEnforcerSet();
         _validateProofRoot(proof);
-        bytes memory args = _encodeArgs(abi.encode(nullifiers, outputs), _encodeCtx());
+        bytes memory args = bytes.concat(
+            abi.encode(nullifiers, outputs),
+            _encodeCtx()
+        );
         bytes memory ret = _callCodec(
             abi.encodeWithSelector(IAENKNRECodec.buildTransfer.selector, proof, args)
         );
-        uint256[] memory enfN = _readDynArray(ret, 1);
-        _requireEnfArity(enfN);
-        _s().pendingEnfNullifiers = enfN;
+        (
+            uint256[] memory pi,
+            uint256[] memory enfN,
+            uint256[8] memory proofWords
+        ) = abi.decode(ret, (uint256[], uint256[], uint256[8]));
         _checkEnforcementNullifiersUnspent(enfN);
-        return (_readDynArray(ret, 0), _toProof(ret, 2));
+        _s().pendingEnfNullifiers = enfN;
+        return (pi, _toProof(proofWords));
     }
 
     function constructPublicInputsForDeposit(
@@ -288,11 +177,15 @@ contract Zeto_AENKNRETransferFacet is
         bytes memory proof
     ) public virtual override returns (uint256[] memory, Commonlib.Proof memory) {
         _requireEnforcerSet();
-        bytes memory args = _encodeArgs(abi.encode(amount, outputs), _encodeCtx());
+        bytes memory args = bytes.concat(abi.encode(amount, outputs), _encodeCtx());
         bytes memory ret = _callCodec(
             abi.encodeWithSelector(IAENKNRECodec.buildDeposit.selector, proof, args)
         );
-        return (_readDynArray(ret, 0), _toProof(ret, 1));
+        (uint256[] memory pi, uint256[8] memory proofWords) = abi.decode(
+            ret,
+            (uint256[], uint256[8])
+        );
+        return (pi, _toProof(proofWords));
     }
 
     function constructPublicInputsForWithdraw(
@@ -306,18 +199,21 @@ contract Zeto_AENKNRETransferFacet is
         // The facet runs under delegatecall, so msg.sender is the original caller
         // — the same address `ZetoFungible.withdraw` pays the ERC-20 to. Binding
         // it into the proof stops a copied withdrawal from paying anyone else.
-        bytes memory args = _encodeArgs(
+        bytes memory args = bytes.concat(
             abi.encode(amount, nullifiers, output, uint256(uint160(msg.sender))),
             _encodeCtx()
         );
         bytes memory ret = _callCodec(
             abi.encodeWithSelector(IAENKNRECodec.buildWithdraw.selector, proof, args)
         );
-        uint256[] memory enfN = _readDynArray(ret, 1);
-        _requireEnfArity(enfN);
-        _s().pendingEnfNullifiers = enfN;
+        (
+            uint256[] memory pi,
+            uint256[] memory enfN,
+            uint256[8] memory proofWords
+        ) = abi.decode(ret, (uint256[], uint256[], uint256[8]));
         _checkEnforcementNullifiersUnspent(enfN);
-        return (_readDynArray(ret, 0), _toProof(ret, 2));
+        _s().pendingEnfNullifiers = enfN;
+        return (pi, _toProof(proofWords));
     }
 
     function processInputsAndOutputs(
@@ -327,11 +223,7 @@ contract Zeto_AENKNRETransferFacet is
     ) internal virtual override {
         super.processInputsAndOutputs(inputs, outputs, inputsLocked);
         // mark enforcement nullifiers staged during constructPublicInputs
-        uint256[] storage pending = _s().pendingEnfNullifiers;
-        for (uint256 i = 0; i < pending.length; ++i) {
-            if (pending[i] != 0)
-                _s().enforcementNullifierSpent[pending[i]] = true;
-        }
+        _markEnforcementNullifiersSpent(_s().pendingEnfNullifiers);
         // Staging is transaction-scoped but lives in persistent storage, so it
         // must not outlive the transaction that decoded and verified it. Clear
         // it once consumed, leaving nothing a later frame could re-mark.
@@ -376,19 +268,21 @@ contract Zeto_AENKNRETransferFacet is
         _requireEnforcerSet();
         validateOutputs(outputs);
 
-        bytes memory args = _encodeArgs(abi.encode(outputs), _encodeCtx());
+        bytes memory args = bytes.concat(abi.encode(outputs), _encodeCtx());
         bytes memory ret = _callCodec(
             abi.encodeWithSelector(IAENKNRECodec.buildForcedTransfer.selector, proof, args)
         );
 
-        uint256[] memory pi = _readDynArray(ret, 0);
-        uint256[] memory enfN = _readDynArray(ret, 1);
-        _requireEnfArity(enfN);
-        uint256 root = _readWord(ret, 2);
+        (
+            uint256[] memory pi,
+            uint256[] memory enfN,
+            uint256 root,
+            uint256[8] memory proofWords
+        ) = abi.decode(ret, (uint256[], uint256[], uint256, uint256[8]));
         validateRoot(root);
         _checkEnforcementNullifiersUnspent(enfN);
 
-        Commonlib.Proof memory ps = _toProof(ret, 3);
+        Commonlib.Proof memory ps = _toProof(proofWords);
         if (!_s().forcedTransferVerifier.verify(ps.pA, ps.pB, ps.pC, pi)) {
             revert InvalidProof();
         }
@@ -414,30 +308,63 @@ contract Zeto_AENKNRETransferFacet is
     }
 
     // ── Proof event field readers ──
-    // Word indices correspond to the ABI head of each proof encoding.
+    // The proof encodings are the ones lib/aenknre_codec.sol decodes; these
+    // keep only the fields the events publish.
 
     function _readTransferEventFields(
         bytes memory proof
     ) private pure returns (_DecodedProof_EventFields memory dp) {
-        dp.enforcementNullifiers = _readDynArray(proof, 1);
-        dp.encryptionNonce = _readWord(proof, 2);
-        dp.ecdhPublicKey[0] = _readWord(proof, 3);
-        dp.ecdhPublicKey[1] = _readWord(proof, 4);
-        dp.encryptedValuesForReceiver = _readDynArray(proof, 5);
-        dp.encryptedValuesForArbiter = _readDynArray(proof, 6);
-        dp.encryptedValuesForEnforcer = _readDynArray(proof, 7);
+        (
+            ,
+            dp.enforcementNullifiers,
+            dp.encryptionNonce,
+            dp.ecdhPublicKey,
+            dp.encryptedValuesForReceiver,
+            dp.encryptedValuesForArbiter,
+            dp.encryptedValuesForEnforcer,
+
+        ) = abi.decode(
+            proof,
+            (
+                uint256,
+                uint256[],
+                uint256,
+                uint256[2],
+                uint256[],
+                uint256[],
+                uint256[],
+                Commonlib.Proof
+            )
+        );
     }
 
     function _readForcedTransferEventFields(
         bytes memory proof
     ) private pure returns (_DecodedProof_EventFields memory dp) {
-        dp.enforcementNullifiers = _readDynArray(proof, 0);
-        dp.encryptionNonce = _readWord(proof, 3);
-        dp.ecdhPublicKey[0] = _readWord(proof, 4);
-        dp.ecdhPublicKey[1] = _readWord(proof, 5);
-        dp.encryptedValuesForReceiver = _readDynArray(proof, 6);
-        dp.encryptedValuesForArbiter = _readDynArray(proof, 7);
-        dp.encryptedValuesForEnforcer = _readDynArray(proof, 8);
+        (
+            dp.enforcementNullifiers,
+            ,
+            ,
+            dp.encryptionNonce,
+            dp.ecdhPublicKey,
+            dp.encryptedValuesForReceiver,
+            dp.encryptedValuesForArbiter,
+            dp.encryptedValuesForEnforcer,
+
+        ) = abi.decode(
+            proof,
+            (
+                uint256[],
+                uint256,
+                uint256[],
+                uint256,
+                uint256[2],
+                uint256[],
+                uint256[],
+                uint256[],
+                Commonlib.Proof
+            )
+        );
     }
 
     // ── Deposit collateral ──
