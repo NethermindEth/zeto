@@ -55,7 +55,9 @@ contract Zeto_AENKNRETransferFacet is
     }
 
     function _requireEnforcerSet() private view {
-        if (!_s().enforcerSet) revert EnforcerNotSet();
+        if (!_s().enforcerSet) {
+            revert EnforcerNotSet();
+        }
     }
 
     // ── Codec interaction ──
@@ -92,13 +94,17 @@ contract Zeto_AENKNRETransferFacet is
     ) private view {
         AENKNREStorage.Layout storage s = _s();
         for (uint256 i = 0; i < enfNullifiers.length; ++i) {
-            if (enfNullifiers[i] == 0) continue;
-            for (uint256 j = 0; j < i; ++j) {
-                if (enfNullifiers[j] == enfNullifiers[i])
-                    revert EnforcementNullifierDuplicate(enfNullifiers[i]);
+            if (enfNullifiers[i] == 0) {
+                continue;
             }
-            if (s.enforcementNullifierSpent[enfNullifiers[i]])
+            for (uint256 j = 0; j < i; ++j) {
+                if (enfNullifiers[j] == enfNullifiers[i]) {
+                    revert EnforcementNullifierDuplicate(enfNullifiers[i]);
+                }
+            }
+            if (s.enforcementNullifierSpent[enfNullifiers[i]]) {
                 revert EnforcementNullifierAlreadySpent(enfNullifiers[i]);
+            }
         }
     }
 
@@ -107,8 +113,9 @@ contract Zeto_AENKNRETransferFacet is
     ) private {
         AENKNREStorage.Layout storage s = _s();
         for (uint256 i = 0; i < enfNullifiers.length; ++i) {
-            if (enfNullifiers[i] != 0)
+            if (enfNullifiers[i] != 0) {
                 s.enforcementNullifierSpent[enfNullifiers[i]] = true;
+            }
         }
     }
 

@@ -19,6 +19,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {IZetoComplianceRoot} from "./interfaces/IZetoComplianceRoot.sol";
 
 /// @title On-chain compliance root registry for Zeto tokens
+/// @author Kaleido, Inc.
 /// @dev Stores only the compliance SMT root hash on-chain. The full
 ///   Sparse Merkle Tree is maintained off-chain by a compliance
 ///   service, which posts updated roots via setComplianceRoot.

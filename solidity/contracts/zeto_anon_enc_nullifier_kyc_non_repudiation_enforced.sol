@@ -95,11 +95,15 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     ///   EIP-6780 a contract can only lose its code in the transaction that
     ///   created it, so a target with code here keeps it.
     function _requireContract(address target) private view {
-        if (target.code.length == 0) revert NotAContract(target);
+        if (target.code.length == 0) {
+            revert NotAContract(target);
+        }
     }
 
     function setCodec(address codec) public onlyOwner {
-        if (address(_s().codec) != address(0)) revert CodecAlreadySet();
+        if (address(_s().codec) != address(0)) {
+            revert CodecAlreadySet();
+        }
         _requireContract(codec);
         _s().codec = IAENKNRECodec(codec);
     }
@@ -168,7 +172,9 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     ///   call reverts `EnforcerAlreadySet` regardless of the key offered.
     function setEnforcer(uint256[2] memory newKey) public onlyOwner {
         AENKNREStorage.Layout storage s = _s();
-        if (s.enforcerSet) revert EnforcerAlreadySet();
+        if (s.enforcerSet) {
+            revert EnforcerAlreadySet();
+        }
         _requireValidBabyJubKey(newKey);
         s.enforcerPub = newKey;
         s.enforcerSet = true;
@@ -267,7 +273,9 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
 
     function _forwardToFacet() private {
         address facet = _s().transferFacet;
-        if (facet == address(0)) revert FacetNotSet();
+        if (facet == address(0)) {
+            revert FacetNotSet();
+        }
         /// @solidity memory-safe-assembly
         assembly {
             calldatacopy(0, 0, calldatasize())

@@ -15,17 +15,31 @@
 // limitations under the License.
 pragma solidity ^0.8.27;
 
+/// @title The compliance-root projection an enforced Zeto token publishes
+/// @author Kaleido, Inc.
+/// @dev The compliance tree records a status per identity, and its root is a
+///   public input to every enforced proof. A token exposes the current root so
+///   a prover can build against the same one the verifier will be given.
 interface IZetoComplianceRoot {
+    /// @dev Emitted when the compliance root moves. Proofs built against
+    ///   `oldRoot` stop verifying at that point.
+    /// @param oldRoot The root being replaced.
+    /// @param newRoot The root now in force.
+    /// @param data Caller-supplied data, carried through for indexers.
     event ComplianceRootUpdated(
         uint256 oldRoot,
         uint256 newRoot,
         bytes data
     );
 
+    /// @dev Replaces the compliance root.
+    /// @param newRoot The root to put in force.
+    /// @param data Caller-supplied data, emitted with the event.
     function setComplianceRoot(
         uint256 newRoot,
         bytes calldata data
     ) external;
 
+    /// @dev Returns the compliance root currently in force.
     function getComplianceRoot() external view returns (uint256);
 }

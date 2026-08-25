@@ -19,6 +19,7 @@ import {Commonlib} from "./common/common.sol";
 import {IAENKNRECodec} from "./interfaces/IAENKNRECodec.sol";
 
 /// @title AENKNRECodec — proof decoder and public-input assembler for AENKNR-E
+/// @author Kaleido, Inc.
 /// @dev Each build* function decodes the proof bytes (circuit-specific fields +
 ///   Groth16 proof), decodes the packed args (call parameters + ProofContext),
 ///   and assembles the public-input array matching the circuit's signal ordering.
@@ -54,40 +55,71 @@ contract AENKNRECodec is IAENKNRECodec {
     error PublicInputLengthMismatch(uint256 expected, uint256 actual);
 
     function _requireArity(uint256 actual, uint256 expected) private pure {
-        if (actual != expected) revert InvalidProofFieldArity(expected, actual);
+        if (actual != expected) {
+            revert InvalidProofFieldArity(expected, actual);
+        }
     }
 
     /// @dev Total-coverage check: every `pi` slot must have been written exactly
     ///   once. Cheap insurance against future layout drift.
     function _requireComplete(uint256 idx, uint256 expected) private pure {
-        if (idx != expected) revert PublicInputLengthMismatch(expected, idx);
+        if (idx != expected) {
+            revert PublicInputLengthMismatch(expected, idx);
+        }
     }
 
     // Decoded proof field structs — one per circuit
     struct TransferFields {
-        uint256 root; uint256[] enfN; uint256 encNonce;
-        uint256[2] ecdhPub; uint256[] encR; uint256[] encA; uint256[] encE;
+        uint256 root;
+        uint256[] enfN;
+        uint256 encNonce;
+        uint256[2] ecdhPub;
+        uint256[] encR;
+        uint256[] encA;
+        uint256[] encE;
     }
+
     struct DepositFields {
-        uint256 encNonce; uint256[2] ecdhPub;
-        uint256[] encR; uint256[] encA; uint256[] encE;
+        uint256 encNonce;
+        uint256[2] ecdhPub;
+        uint256[] encR;
+        uint256[] encA;
+        uint256[] encE;
     }
+
     struct WithdrawFields {
-        uint256 root; uint256[] enfN; uint256 encNonce;
-        uint256[2] ecdhPub; uint256[] encA; uint256[] encE;
+        uint256 root;
+        uint256[] enfN;
+        uint256 encNonce;
+        uint256[2] ecdhPub;
+        uint256[] encA;
+        uint256[] encE;
     }
+
     struct ForcedTransferFields {
-        uint256[] enfN; uint256 root; uint256[] enabled; uint256 encNonce;
-        uint256[2] ecdhPub; uint256[] encR; uint256[] encA; uint256[] encE;
+        uint256[] enfN;
+        uint256 root;
+        uint256[] enabled;
+        uint256 encNonce;
+        uint256[2] ecdhPub;
+        uint256[] encR;
+        uint256[] encA;
+        uint256[] encE;
     }
 
     // ── Proof decoders ──
 
-    function _proofToWords(Commonlib.Proof memory ps) private pure returns (uint256[8] memory w) {
-        w[0] = ps.pA[0]; w[1] = ps.pA[1];
-        w[2] = ps.pB[0][0]; w[3] = ps.pB[0][1];
-        w[4] = ps.pB[1][0]; w[5] = ps.pB[1][1];
-        w[6] = ps.pC[0]; w[7] = ps.pC[1];
+    function _proofToWords(
+        Commonlib.Proof memory ps
+    ) private pure returns (uint256[8] memory w) {
+        w[0] = ps.pA[0];
+        w[1] = ps.pA[1];
+        w[2] = ps.pB[0][0];
+        w[3] = ps.pB[0][1];
+        w[4] = ps.pB[1][0];
+        w[5] = ps.pB[1][1];
+        w[6] = ps.pC[0];
+        w[7] = ps.pC[1];
     }
 
     function _decodeTransfer(bytes calldata p) private pure returns (TransferFields memory d, Commonlib.Proof memory ps) {
@@ -126,17 +158,27 @@ contract AENKNRECodec is IAENKNRECodec {
         uint256[] memory pi, uint256 s,
         uint256[2] memory ep, uint256[] memory eR, uint256[] memory eA, uint256[] memory eE
     ) private pure returns (uint256 idx) {
-        pi[s] = ep[0]; pi[s+1] = ep[1]; idx = s + 2;
-        for (uint256 i; i < eR.length; ++i) pi[idx++] = eR[i];
-        for (uint256 i; i < eA.length; ++i) pi[idx++] = eA[i];
-        for (uint256 i; i < eE.length; ++i) pi[idx++] = eE[i];
+        pi[s] = ep[0];
+        pi[s + 1] = ep[1];
+        idx = s + 2;
+        for (uint256 i; i < eR.length; ++i) {
+            pi[idx++] = eR[i];
+        }
+        for (uint256 i; i < eA.length; ++i) {
+            pi[idx++] = eA[i];
+        }
+        for (uint256 i; i < eE.length; ++i) {
+            pi[idx++] = eE[i];
+        }
     }
 
     /// @dev Returns the offset at which the ProofContext tail begins: the first
     ///   portion of args is standard ABI encoding, and the last 192 bytes are 6
     ///   raw uint256 words encoding ProofContext.
     function _ctxOffset(bytes calldata args) private pure returns (uint256 ctxOff) {
-        if (args.length < CTX_BYTES) revert InvalidArgsLength(args.length);
+        if (args.length < CTX_BYTES) {
+            revert InvalidArgsLength(args.length);
+        }
         ctxOff = args.length - CTX_BYTES;
     }
 
@@ -166,15 +208,26 @@ contract AENKNRECodec is IAENKNRECodec {
         proofWords = _proofToWords(ps);
         pi = new uint256[](PI_LEN_TRANSFER);
         uint256 idx = _fillCipher(pi, 0, f.ecdhPub, f.encR, f.encA, f.encE);
-        for (uint256 i; i < nullifiers.length; ++i) pi[idx++] = nullifiers[i];
-        for (uint256 i; i < f.enfN.length; ++i) pi[idx++] = f.enfN[i];
+        for (uint256 i; i < nullifiers.length; ++i) {
+            pi[idx++] = nullifiers[i];
+        }
+        for (uint256 i; i < f.enfN.length; ++i) {
+            pi[idx++] = f.enfN[i];
+        }
         pi[idx++] = f.root;
-        for (uint256 i; i < nullifiers.length; ++i) pi[idx++] = (nullifiers[i] == 0) ? 0 : 1;
-        pi[idx++] = ctx.idRoot; pi[idx++] = ctx.compRoot;
-        for (uint256 i; i < outputs.length; ++i) pi[idx++] = outputs[i];
+        for (uint256 i; i < nullifiers.length; ++i) {
+            pi[idx++] = (nullifiers[i] == 0) ? 0 : 1;
+        }
+        pi[idx++] = ctx.idRoot;
+        pi[idx++] = ctx.compRoot;
+        for (uint256 i; i < outputs.length; ++i) {
+            pi[idx++] = outputs[i];
+        }
         pi[idx++] = f.encNonce;
-        pi[idx++] = ctx.arbiterPub[0]; pi[idx++] = ctx.arbiterPub[1];
-        pi[idx++] = ctx.enforcerPub[0]; pi[idx++] = ctx.enforcerPub[1];
+        pi[idx++] = ctx.arbiterPub[0];
+        pi[idx++] = ctx.arbiterPub[1];
+        pi[idx++] = ctx.enforcerPub[0];
+        pi[idx++] = ctx.enforcerPub[1];
         _requireComplete(idx, PI_LEN_TRANSFER);
     }
 
@@ -197,11 +250,16 @@ contract AENKNRECodec is IAENKNRECodec {
         pi = new uint256[](PI_LEN_DEPOSIT);
         pi[0] = amount;
         uint256 idx = _fillCipher(pi, 1, f.ecdhPub, f.encR, f.encA, f.encE);
-        for (uint256 i; i < outputs.length; ++i) pi[idx++] = outputs[i];
-        pi[idx++] = ctx.idRoot; pi[idx++] = ctx.compRoot;
+        for (uint256 i; i < outputs.length; ++i) {
+            pi[idx++] = outputs[i];
+        }
+        pi[idx++] = ctx.idRoot;
+        pi[idx++] = ctx.compRoot;
         pi[idx++] = f.encNonce;
-        pi[idx++] = ctx.arbiterPub[0]; pi[idx++] = ctx.arbiterPub[1];
-        pi[idx++] = ctx.enforcerPub[0]; pi[idx++] = ctx.enforcerPub[1];
+        pi[idx++] = ctx.arbiterPub[0];
+        pi[idx++] = ctx.arbiterPub[1];
+        pi[idx++] = ctx.enforcerPub[0];
+        pi[idx++] = ctx.enforcerPub[1];
         _requireComplete(idx, PI_LEN_DEPOSIT);
     }
 
@@ -226,18 +284,34 @@ contract AENKNRECodec is IAENKNRECodec {
         root = f.root;
         proofWords = _proofToWords(ps);
         pi = new uint256[](PI_LEN_WITHDRAW);
-        pi[0] = f.ecdhPub[0]; pi[1] = f.ecdhPub[1]; uint256 idx = 2;
-        for (uint256 i; i < f.encA.length; ++i) pi[idx++] = f.encA[i];
-        for (uint256 i; i < f.encE.length; ++i) pi[idx++] = f.encE[i];
+        pi[0] = f.ecdhPub[0];
+        pi[1] = f.ecdhPub[1];
+        uint256 idx = 2;
+        for (uint256 i; i < f.encA.length; ++i) {
+            pi[idx++] = f.encA[i];
+        }
+        for (uint256 i; i < f.encE.length; ++i) {
+            pi[idx++] = f.encE[i];
+        }
         pi[idx++] = amount;
-        for (uint256 i; i < nullifiers.length; ++i) pi[idx++] = nullifiers[i];
-        for (uint256 i; i < f.enfN.length; ++i) pi[idx++] = f.enfN[i];
-        pi[idx++] = output; pi[idx++] = f.root;
-        pi[idx++] = ctx.idRoot; pi[idx++] = ctx.compRoot;
-        for (uint256 i; i < nullifiers.length; ++i) pi[idx++] = (nullifiers[i] == 0) ? 0 : 1;
+        for (uint256 i; i < nullifiers.length; ++i) {
+            pi[idx++] = nullifiers[i];
+        }
+        for (uint256 i; i < f.enfN.length; ++i) {
+            pi[idx++] = f.enfN[i];
+        }
+        pi[idx++] = output;
+        pi[idx++] = f.root;
+        pi[idx++] = ctx.idRoot;
+        pi[idx++] = ctx.compRoot;
+        for (uint256 i; i < nullifiers.length; ++i) {
+            pi[idx++] = (nullifiers[i] == 0) ? 0 : 1;
+        }
         pi[idx++] = f.encNonce;
-        pi[idx++] = ctx.arbiterPub[0]; pi[idx++] = ctx.arbiterPub[1];
-        pi[idx++] = ctx.enforcerPub[0]; pi[idx++] = ctx.enforcerPub[1];
+        pi[idx++] = ctx.arbiterPub[0];
+        pi[idx++] = ctx.arbiterPub[1];
+        pi[idx++] = ctx.enforcerPub[0];
+        pi[idx++] = ctx.enforcerPub[1];
         pi[idx++] = recipient;
         _requireComplete(idx, PI_LEN_WITHDRAW);
     }
@@ -259,17 +333,28 @@ contract AENKNRECodec is IAENKNRECodec {
         _requireArity(f.enabled.length, ENABLED_LEN);
         _requireArity(outputs.length, OUTPUTS_LEN);
 
-        enfNullifiers = f.enfN; root = f.root;
+        enfNullifiers = f.enfN;
+        root = f.root;
         proofWords = _proofToWords(ps);
         pi = new uint256[](PI_LEN_FORCED_TRANSFER);
         uint256 idx = _fillCipher(pi, 0, f.ecdhPub, f.encR, f.encA, f.encE);
-        for (uint256 i; i < f.enfN.length; ++i) pi[idx++] = f.enfN[i];
-        for (uint256 i; i < outputs.length; ++i) pi[idx++] = outputs[i];
-        pi[idx++] = f.root; pi[idx++] = ctx.idRoot; pi[idx++] = ctx.compRoot;
-        for (uint256 i; i < f.enabled.length; ++i) pi[idx++] = f.enabled[i];
-        pi[idx++] = ctx.enforcerPub[0]; pi[idx++] = ctx.enforcerPub[1];
+        for (uint256 i; i < f.enfN.length; ++i) {
+            pi[idx++] = f.enfN[i];
+        }
+        for (uint256 i; i < outputs.length; ++i) {
+            pi[idx++] = outputs[i];
+        }
+        pi[idx++] = f.root;
+        pi[idx++] = ctx.idRoot;
+        pi[idx++] = ctx.compRoot;
+        for (uint256 i; i < f.enabled.length; ++i) {
+            pi[idx++] = f.enabled[i];
+        }
+        pi[idx++] = ctx.enforcerPub[0];
+        pi[idx++] = ctx.enforcerPub[1];
         pi[idx++] = f.encNonce;
-        pi[idx++] = ctx.arbiterPub[0]; pi[idx++] = ctx.arbiterPub[1];
+        pi[idx++] = ctx.arbiterPub[0];
+        pi[idx++] = ctx.arbiterPub[1];
         _requireComplete(idx, PI_LEN_FORCED_TRANSFER);
     }
 }

@@ -16,6 +16,7 @@
 pragma solidity ^0.8.27;
 
 /// @title IAENKNRECodec — proof decoder and public-input assembler for AENKNR-E
+/// @author Kaleido, Inc.
 /// @dev Called via STATICCALL from the TransferFacet. Decodes the proof bytes
 ///   and assembles the public-input array (pi) for each circuit. Returns flat
 ///   types (uint256[], uint256[8]) rather than structs.

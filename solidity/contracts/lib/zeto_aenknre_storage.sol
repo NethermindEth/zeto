@@ -19,6 +19,7 @@ import {IAENKNRECodec} from "./interfaces/IAENKNRECodec.sol";
 import {IGroth16Verifier} from "./interfaces/IZetoVerifier.sol";
 
 /// @title AENKNREStorage — ERC-7201 namespaced storage shared by the AENKNR-E router and facet
+/// @author Kaleido, Inc.
 /// @dev Both the router and the TransferFacet import this library so they
 ///   read/write the same storage slots when the facet executes via DELEGATECALL.
 /// @dev ERC-7201 (`erc7201:zeto.storage.aenknre`): slot =
