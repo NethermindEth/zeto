@@ -13,12 +13,16 @@
 // limitations under the License.
 pragma circom 2.2.2;
 
-include "./basetokens/forced_transfer_nullifier_kyc_enforced_base.circom";
+include "../../../circuits/lib/cipher-text-length.circom";
 
-// Output signals (signal output in template, not in { public [] }):
-//   ecdhPublicKey[2], encryptedValuesForReceiver[2][4],
-//   encryptedValuesForArbiter[16], encryptedValuesForEnforcer[16]
-component main { public [ enforcementNullifiers, outputCommitments,
-                          utxosRoot, identitiesRoot, complianceRoot, enabledInputs,
-                          enforcerPublicKey, encryptionNonce, arbiterPublicKey ] }
-  = ForcedTransferEnforced(2, 2, 32, 20, 20);
+// Evaluates the function across a contiguous range of plaintext lengths so that
+// one witness covers every residue class rather than a single production value.
+template CipherTextLengths(maxPlainTextLength) {
+  signal output lengths[maxPlainTextLength + 1];
+
+  for (var i = 0; i <= maxPlainTextLength; i++) {
+    lengths[i] <== CipherTextLength(i);
+  }
+}
+
+component main = CipherTextLengths(16);

@@ -15,7 +15,6 @@ pragma circom 2.2.2;
 
 include "../lib/check-positive.circom";
 include "../lib/check-hashes.circom";
-include "../lib/check-sum.circom";
 include "../lib/check-nullifiers.circom";
 include "../lib/check-smt-proof.circom";
 include "../lib/check-non-zero.circom";
@@ -27,28 +26,55 @@ include "../lib/kyc.circom";
 include "../lib/compliance-constants.circom";
 include "../lib/compliance-status.circom";
 include "../lib/cipher-text-length.circom";
-include "../lib/encrypt-outputs.circom";
+include "../lib/ecdh.circom";
+include "../lib/encrypt.circom";
 include "../node_modules/circomlib/circuits/babyjub.circom";
+include "../node_modules/circomlib/circuits/comparators.circom";
 
-// This circuit performs the following operations:
+// This circuit performs the following operations for an AENKNR-E withdrawal:
 // - derive the sender's public key from the sender's private key
 // - check the input and output commitments match the expected hashes
-// - check the input and output values sum to the same amount (value conservation)
 // - check the owner nullifiers are derived from the input values, salts, and owner private key
 // - check the enforcement nullifiers are derived via ECDH(ownerPriv, enforcerPub)
+// - check value conservation: sum(inputValues) == amount + sum(outputValues)
 // - check the input commitments exist in the UTXO Sparse Merkle Tree
-// - validate every external public key lies on the BabyJubJub curve and has a
-//   non-zero x coordinate. This is load-bearing, not defence-in-depth: Kyc and
-//   ComplianceStatus gate on `publicKey[0] == 0`, and EscalarMulAny substitutes
-//   the Base8 generator for an x == 0 point
-// - check sender + non-zero output owners are KYC-registered in the identities SMT
-// - check sender + non-zero output owners have ACTIVE compliance status
-// - encrypt output UTXOs for their receivers
+// - validate arbiterPublicKey, enforcerPublicKey and the change output owner key
+//   lie on the BabyJubJub curve and have a non-zero x coordinate
+// - check sender is KYC-registered and has ACTIVE compliance status
+// - check non-zero change output owner is KYC-registered and has ACTIVE compliance status
 // - encrypt all secrets for the arbiter (non-repudiation)
 // - encrypt all secrets for the enforcer (seizure capability)
-template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplianceSMTLevels) {
+//
+// Uses the unified 14-element authority plaintext schema (same as transfer/deposit):
+//   [senderPubX, senderPubY, in1Value, in1Salt, in2Value, in2Salt,
+//    out1OwnerX, out1OwnerY, out2OwnerX, out2OwnerY,
+//    out1Value, out1Salt, out2Value, out2Salt]
+// nVirtualOutputs = 1: pads the single change output to 2 outputs, matching
+// the transfer layout so arbiter/enforcer use a single decryption schema.
+//
+// No per-receiver encryption (EncryptOutputs): the change output owner is
+// constrained to be the sender, who already knows the preimage. That constraint
+// is what makes the omission safe — without it the change could be sent to a
+// third party who would hold a note whose preimage was never encrypted to them.
+template WithdrawEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplianceSMTLevels) {
+  signal input amount;
   signal input ownerNullifiers[nInputs];
   signal input enforcementNullifiers[nInputs];
+  signal input outputCommitments[nOutputs];
+  signal input utxosRoot;
+  signal input identitiesRoot;
+  signal input complianceRoot;
+  signal input enabledInputs[nInputs];
+  signal input encryptionNonce;
+  signal input arbiterPublicKey[2];
+  signal input enforcerPublicKey[2];
+  // The address that will receive the withdrawn ERC-20, injected by the
+  // contract as `uint256(uint160(msg.sender))`. Binding it into the proof stops
+  // an observer from copying a pending withdrawal and taking the payout.
+  // Declared last among the public inputs so it occupies the final public
+  // signal and every existing index is unchanged.
+  signal input recipient;
+
   signal input inputCommitments[nInputs];
   signal input inputValues[nInputs];
   signal input inputSalts[nInputs];
@@ -57,40 +83,29 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
   signal input inputOwnerPrivateKey;
   // an ephemeral private key that is used to generate the shared ECDH key for encryption
   signal input ecdhPrivateKey;
-  signal input utxosRoot;
   signal input utxosMerkleProof[nInputs][nUTXOSMTLevels];
-  signal input enabledInputs[nInputs];
-  signal input identitiesRoot;
   signal input identitiesMerkleProof[nOutputs + 1][nIdentitiesSMTLevels];
-  signal input complianceRoot;
   signal input complianceMerkleProof[nOutputs + 1][nComplianceSMTLevels];
-  signal input outputCommitments[nOutputs];
   signal input outputValues[nOutputs];
   signal input outputSalts[nOutputs];
   signal input outputOwnerPublicKeys[nOutputs][2];
-  signal input encryptionNonce;
-  signal input arbiterPublicKey[2];
-  signal input enforcerPublicKey[2];
 
   // the output for the public key of the ephemeral private key used in generating ECDH shared key
   signal output ecdhPublicKey[2];
 
-  // the output for the list of encrypted output UTXOs cipher texts
-  signal output encryptedValuesForReceiver[nOutputs][4];
-
-  // Authority plaintext length:
-  //   - input owner public key (x, y): 2
-  //   - secrets (value and salt) for each input UTXOs: 2 * nInputs
-  //   - output owner public keys (x, y): 2 * nOutputs
-  //   - secrets (value and salt) for each output UTXOs: 2 * nOutputs
-  var authorityPlaintextLength = 2 + 2 * nInputs + 2 * nOutputs + 2 * nOutputs;
+  // Full 14-element authority schema (matches transfer/deposit):
+  // [senderPubX, senderPubY, in1Value, in1Salt, in2Value, in2Salt,
+  //  out1OwnerX, out1OwnerY, out2OwnerX, out2OwnerY,
+  //  out1Value, out1Salt, out2Value, out2Salt]
+  var nVirtualOutputs = 2 - nOutputs;   // = 1 for this circuit (nOutputs=1)
+  var authorityPlaintextLength = 2 + 2 * nInputs + 2 * (nOutputs + nVirtualOutputs) + 2 * (nOutputs + nVirtualOutputs);
+  // = 2 + 4 + 4 + 4 = 14
+  // 14 → padded to 15 (next multiple of 3) → output length = 16
   signal output encryptedValuesForArbiter[CipherTextLength(authorityPlaintextLength)];
   signal output encryptedValuesForEnforcer[CipherTextLength(authorityPlaintextLength)];
 
   // Derive sender's public key from private key (key ownership proof).
   // Single inputOwnerPrivateKey for all inputs → single-sender model.
-  // The derived key serves dual purpose: (1) commitment preimage owner in
-  // CheckHashes, and (2) ECDH key for enforcement nullifier derivation.
   var inputOwnerPubKeyAx, inputOwnerPubKeyAy;
   (inputOwnerPubKeyAx, inputOwnerPubKeyAy) = BabyPbk()(in <== inputOwnerPrivateKey);
 
@@ -117,7 +132,7 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
 
   // One enable flag per input slot, and every gate that could refuse the slot
   // follows it: commitment, owner nullifier, enforcement tag, SMT inclusion and
-  // the value that enters CheckSum.
+  // the value that enters the conservation sum.
   CheckEnabledInputs(nInputs)(enabled <== enabledInputs, commitments <== inputCommitments, values <== inputValues);
   CheckSlotTags(nInputs)(enabled <== enabledInputs, tags <== ownerNullifiers);
 
@@ -129,55 +144,84 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
   // are transitively bound to the same input commitments.
   CheckNullifiers(nInputs)(nullifiers <== ownerNullifiers, values <== inputValues, salts <== inputSalts, ownerPrivateKey <== inputOwnerPrivateKey);
 
-  CheckSum(nInputs, nOutputs)(inputValues <== inputValues, outputValues <== outputValues);
+  // Value conservation: sum(inputValues) == amount + sum(outputValues)
+  // GreaterEqThan provides range validation (both sums fit in 100 bits,
+  // preventing field-wraparound attacks); IsEqual binds the public amount.
+  var sumInputs = 0;
+  for (var i = 0; i < nInputs; i++) {
+    sumInputs = sumInputs + inputValues[i];
+  }
+  var sumOutputs = 0;
+  for (var i = 0; i < nOutputs; i++) {
+    sumOutputs = sumOutputs + outputValues[i];
+  }
+
+  var greaterEqThan;
+  greaterEqThan = GreaterEqThan(100)(in <== [sumInputs, sumOutputs]);
+  greaterEqThan === 1;
+
+  var isSumEqual;
+  isSumEqual = IsEqual()(in <== [sumInputs, amount + sumOutputs]);
+  isSumEqual === 1;
 
   // The preceding constraints bind each nullifier to its input commitment.
   // This one binds the commitment to the sparse merkle tree at `utxosRoot`,
   // so an input must be a member of the committed UTXO set.
   CheckSMTProof(nInputs, nUTXOSMTLevels)(root <== utxosRoot, merkleProof <== utxosMerkleProof, enabled <== enabledInputs, leafNodeIndexes <== inputCommitments, leafNodeValues <== inputCommitments);
 
-  var enabledOutputs[nOutputs];
-  enabledOutputs = CheckOutputSlots(nOutputs)(outputCommitments <== outputCommitments, outputValues <== outputValues, outputOwnerPublicKeys <== outputOwnerPublicKeys);
-
-  // Validate external public keys are on the BabyJubJub curve.
+  // Validate external public keys lie on the BabyJubJub curve.
   // Keys derived in-circuit via BabyPbk (inputOwnerPublicKey) are exempt.
   CheckBabyJubPublicKey()(publicKey <== arbiterPublicKey);
   CheckBabyJubPublicKey()(publicKey <== enforcerPublicKey);
 
-  // Check that the owner public keys for inputs and outputs are
-  // included in the identities Sparse Merkle Tree with the root `identitiesRoot`.
+  var enabledOutputs[nOutputs];
+  enabledOutputs = CheckOutputSlots(nOutputs)(outputCommitments <== outputCommitments, outputValues <== outputValues, outputOwnerPublicKeys <== outputOwnerPublicKeys);
+
+  // Check that the sender and non-zero change output owners are
+  // KYC-registered and have ACTIVE compliance status.
   // Zero-commitment gating: disabled output slots produce zero public keys,
-  // which Kyc skips via pubkey-zero gating (mirrors kyc.circom pattern).
+  // which Kyc and ComplianceStatus skip via pubkey-zero gating.
   var ownerPublicKeys[nOutputs + 1][2];
   ownerPublicKeys[0] = [inputOwnerPubKeyAx, inputOwnerPubKeyAy];
   for (var i = 0; i < nOutputs; i++) {
     ownerPublicKeys[i + 1][0] = enabledOutputs[i] * outputOwnerPublicKeys[i][0];
     ownerPublicKeys[i + 1][1] = enabledOutputs[i] * outputOwnerPublicKeys[i][1];
   }
+
+  // The change output belongs to the sender. This is the premise the missing
+  // per-receiver encryption rests on, so it is enforced rather than assumed.
+  // A disabled slot has no owner, so the binding applies only to live slots.
+  for (var i = 0; i < nOutputs; i++) {
+    enabledOutputs[i] * (outputOwnerPublicKeys[i][0] - inputOwnerPubKeyAx) === 0;
+    enabledOutputs[i] * (outputOwnerPublicKeys[i][1] - inputOwnerPubKeyAy) === 0;
+  }
+
   Kyc(nOutputs + 1, nIdentitiesSMTLevels)(publicKeys <== ownerPublicKeys, root <== identitiesRoot, merkleProof <== identitiesMerkleProof);
 
-  // Check that sender + non-zero output owners have ACTIVE compliance status.
   // STATUS=1 is a compile-time constant (ACTIVE), preventing prover substitution.
-  // Uses the same gated ownerPublicKeys array; ComplianceStatus skips zero keys.
   ComplianceStatus(nOutputs + 1, nComplianceSMTLevels, STATUS_ACTIVE())(publicKeys <== ownerPublicKeys, root <== complianceRoot, merkleProof <== complianceMerkleProof);
 
   // Check enforcement nullifiers. Uses the same inputCommitments passed to
-  // CheckHashes and CheckSMTProof — this three-way binding ensures enforcement
-  // nullifiers correspond to real, SMT-included UTXOs with verified preimages.
-  // In the transfer path:
+  // CheckHashes and CheckSMTProof — binding enforcement nullifiers to the
+  // same verified, SMT-included notes as owner nullifiers.
+  // In the withdraw path:
   //   ecdhKey = inputOwnerPrivateKey, counterpartyPublicKey = enforcerPublicKey
   // DH symmetry: ECDH(ownerPriv, enfPub) == ECDH(enfPriv, ownerPub)
   CheckEnforcementNullifiers(nInputs)(enforcementNullifiers <== enforcementNullifiers, inputCommitments <== inputCommitments, counterpartyPublicKey <== enforcerPublicKey, ecdhKey <== inputOwnerPrivateKey, enabled <== enabledInputs);
 
-  // Generate cipher text for output UTXOs (per-receiver encryption)
-  (ecdhPublicKey, encryptedValuesForReceiver) <== EncryptOutputs(nOutputs)(ecdhPrivateKey <== ecdhPrivateKey, encryptionNonce <== encryptionNonce, commitmentInputs <== outAuxInputs);
+  // Derive the ECDH public key separately here because this circuit does not
+  // use EncryptOutputs (which normally derives it). The arbiter/enforcer needs
+  // this public key to compute the shared secret.
+  (ecdhPublicKey[0], ecdhPublicKey[1]) <== BabyPbk()(in <== ecdhPrivateKey);
   // The published ephemeral public key must not be the curve identity: that
   // happens exactly when the ephemeral scalar is zero (or a multiple of the
   // subgroup order), which makes every shared secret in this proof public.
   CheckNonZero()(in <== ecdhPublicKey[0]);
 
-  // Assemble authority plaintext:
-  // [senderPubX, senderPubY, in1Value, in1Salt, ..., out1OwnerX, out1OwnerY, ..., out1Value, out1Salt, ...]
+  // Assemble authority plaintext (14-element unified schema):
+  // [senderPubX, senderPubY, in1Value, in1Salt, in2Value, in2Salt,
+  //  changeOwnerX, changeOwnerY, 0, 0,      ← real output + virtual
+  //  changeValue, changeSalt, 0, 0]          ← real output + virtual
   var plainText[authorityPlaintextLength];
   plainText[0] = inputOwnerPubKeyAx;
   plainText[1] = inputOwnerPubKeyAy;
@@ -197,6 +241,13 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
     plainText[idx] = enabledOutputs[i] * outputOwnerPublicKeys[i][1];
     idx++;
   }
+  // virtual output owner keys (zero-padded)
+  for (var i = 0; i < nVirtualOutputs; i++) {
+    plainText[idx] = 0;
+    idx++;
+    plainText[idx] = 0;
+    idx++;
+  }
   for (var i = 0; i < nOutputs; i++) {
     // CheckOutputSlots already constrains a disabled slot's value to zero.
     plainText[idx] = outputValues[i];
@@ -204,17 +255,27 @@ template Zeto(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevels, nComplian
     plainText[idx] = enabledOutputs[i] * outputSalts[i];
     idx++;
   }
+  // virtual output values/salts (zero-padded)
+  for (var i = 0; i < nVirtualOutputs; i++) {
+    plainText[idx] = 0;
+    idx++;
+    plainText[idx] = 0;
+    idx++;
+  }
 
-  // Encrypt all secrets for the arbiter (non-repudiation).
-  // The <== constraint on signal output ensures ciphertext is correctly computed
-  // in-circuit — the prover cannot supply arbitrary ciphertext calldata.
+  // Arbiter ciphertext (non-repudiation)
   var sharedSecretArbiter[2];
   sharedSecretArbiter = Ecdh()(privKey <== ecdhPrivateKey, pubKey <== arbiterPublicKey);
   encryptedValuesForArbiter <== SymmetricEncrypt(authorityPlaintextLength)(plainText <== plainText, key <== sharedSecretArbiter, nonce <== encryptionNonce);
 
-  // Encrypt all secrets for the enforcer (seizure capability).
-  // Same plaintext as arbiter — both authorities get full transaction metadata.
+  // Enforcer ciphertext (seizure capability)
   var sharedSecretEnforcer[2];
   sharedSecretEnforcer = Ecdh()(privKey <== ecdhPrivateKey, pubKey <== enforcerPublicKey);
   encryptedValuesForEnforcer <== SymmetricEncrypt(authorityPlaintextLength)(plainText <== plainText, key <== sharedSecretEnforcer, nonce <== encryptionNonce);
+
+  // `recipient` carries no circuit statement — the contract compares it against
+  // msg.sender through the public inputs. It still needs a constraint, or the
+  // optimizer removes the signal and the public-signal count stays at 50.
+  signal recipientSq;
+  recipientSq <== recipient * recipient;
 }

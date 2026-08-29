@@ -30,6 +30,8 @@ ANALYZED=(
   lib/check-enabled-inputs.circom
   lib/check-enforcement-nullifiers.circom
   lib/check-non-zero.circom
+  lib/check-output-slots.circom
+  lib/cipher-text-length.circom
   lib/compliance-constants.circom
   lib/compliance-status.circom
   lib/enforcement-nullifier.circom
@@ -40,8 +42,9 @@ ANALYZED=(
 # and asks for it to be moved, so the list can only shrink.
 #
 #   all four: `CommitmentInputs()` buses — circomspect has no bus support, so it
-#   abandons the file. Three surface a parse error; the transfer wrapper reports
-#   "No issues found" having analyzed nothing.
+#   abandons the file and analyzes nothing. Whether it says so by surfacing a
+#   parse error, or stays quiet with "No issues found", depends on whether the
+#   bus sits in the file itself or behind an include. Neither is coverage.
 NOT_ANALYZED=(
   anon_enc_nullifier_kyc_non_repudiation_enforced.circom
   deposit_kyc_non_repudiation_enforced.circom
