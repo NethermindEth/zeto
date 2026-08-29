@@ -47,8 +47,8 @@ include "./ecdh.circom";
 // - check that k0 = Poseidon(2)(ECDH(ecdhKey, counterpartyPublicKey))
 template EnforcementNullifierKey() {
     signal input counterpartyPublicKey[2];
-    // The caller's private key, already hashed and trimmed for BabyJub
-    // (i.e. formatPrivKeyForBabyJub has been applied on the JS side).
+    // The caller's private key, with formatPrivKeyForBabyJub already applied
+    // on the JS side to hash and trim it for BabyJub.
     signal input ecdhKey;
 
     signal output k0;
@@ -81,8 +81,8 @@ template EnforcementNullifierFromKey() {
 template EnforcementNullifier() {
     signal input inputCommitment;
     signal input counterpartyPublicKey[2];
-    // The caller's private key, already hashed and trimmed for BabyJub
-    // (i.e. formatPrivKeyForBabyJub has been applied on the JS side).
+    // The caller's private key, with formatPrivKeyForBabyJub already applied
+    // on the JS side to hash and trim it for BabyJub.
     signal input ecdhKey;
 
     signal output out;

@@ -16,7 +16,7 @@
 
 // The durable control for the AENKNR-E public-signal layout.
 //
-// Circom does NOT order public inputs by the `{ public [...] }` list — it orders
+// Circom does not order public inputs by the `{ public [...] }` list — it orders
 // them by declaration order in the template. A hand-written ordering snapshot is
 // therefore untrustworthy, and one in the transfer suite was in fact wrong: it
 // placed outputCommitments where utxosRoot actually sits. This test reads the

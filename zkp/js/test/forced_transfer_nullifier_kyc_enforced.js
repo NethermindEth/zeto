@@ -295,7 +295,8 @@ describe("forced_transfer_nullifier_kyc_enforced circuit tests", () => {
     expect(witness[pi("arbiterPublicKey[0]")]).to.equal(Arbiter.pubKey[0]);
     expect(witness[pi("arbiterPublicKey[1]")]).to.equal(Arbiter.pubKey[1]);
 
-    // inputCommitments must NOT appear in public signals (privacy requirement)
+    // inputCommitments must not appear in public signals, which is what keeps
+    // the seized notes private
     const publicSignals = witness.slice(1, 57);
     expect(publicSignals).to.not.include(BigInt(inputCommitments[0]));
     expect(publicSignals).to.not.include(BigInt(inputCommitments[1]));

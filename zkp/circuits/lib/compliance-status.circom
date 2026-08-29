@@ -44,14 +44,12 @@ template ComplianceStatus(nIdentities, nComplianceSMTLevels, STATUS) {
     var leafKey;
     leafKey = Poseidon(2)(inputs <== [publicKeys[i][0], publicKeys[i][1]]);
 
-    // STATUS baked in at compile time — prover cannot substitute a different value
     var leafValue;
     leafValue = Poseidon(3)(inputs <== [publicKeys[i][0], publicKeys[i][1], STATUS]);
 
     var isPubKeyZero;
     isPubKeyZero = IsZero()(in <== publicKeys[i][0]);
 
-    // disabled when pubkey is zero (same gating as kyc.circom)
     var smtEnabled = 1 - isPubKeyZero;
 
     var siblings[nComplianceSMTLevels];

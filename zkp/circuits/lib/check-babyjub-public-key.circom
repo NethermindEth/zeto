@@ -26,7 +26,7 @@ include "../node_modules/circomlib/circuits/comparators.circom";
 //   commitment-hash computation — specifically: enforcerPublicKey, arbiterPublicKey,
 //   and outputOwnerPublicKeys[i].
 //
-// When NOT to apply:
+// When not to apply:
 //   Keys produced in-circuit via BabyPbk() are always on-curve by construction;
 //   applying this check to them is redundant and wastes constraints.
 //
@@ -45,12 +45,14 @@ include "../node_modules/circomlib/circuits/comparators.circom";
 //       world-readable, and any nullifier derived against it publicly computable.
 //   Rejecting x == 0 removes both readings at their source. The full cofactor
 //   subgroup check is deliberately not done here: it costs roughly 250
-//   constraints per key across ~14 key slots per circuit, and every exploit in
-//   this family is the x == 0 case.
+//   constraints per key across ~14 key slots per circuit, and the exploits in
+//   this family all reduce to the x == 0 case.
+
 // The BabyJubJub generator, in the same coordinates circomlib's BabyPbk uses.
 // It is the padding value for a slot that is switched off: a real prime-order
 // point, so the padding satisfies every check a live key must satisfy and no
-// branch is skipped for being degenerate. Do not scatter these literals.
+// branch is skipped for being degenerate. Both coordinates are named here so a
+// call site refers to the point rather than repeating the literal.
 function BabyJubBase8X() {
     return 5299619240641551281634865583518297030282874472190772894086521144482721001553;
 }

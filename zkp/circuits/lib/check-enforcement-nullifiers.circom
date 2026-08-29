@@ -25,9 +25,9 @@ include "./enforcement-nullifier.circom";
 //     enabled, and zero when it is disabled
 //
 // The slot is gated by the caller's enable flag, not by the tag being zero.
-// Reading "tag == 0" as "slot disabled" let a prover consume a real note while
-// publishing no tag, which is the only thing that stops the note being spent
-// again on the other nullifier domain.
+// Reading "tag == 0" as "slot disabled" would let a prover consume a real note
+// while publishing no tag, and the published tag is the only thing that stops
+// the note being spent again on the other nullifier domain.
 //
 // inputCommitments must be the same preimage array used for UTXO SMT inclusion
 // so that the enforcement nullifier is provably bound to the same note.
@@ -38,8 +38,8 @@ template CheckEnforcementNullifiers(nInputs) {
   signal input enforcementNullifiers[nInputs];
   signal input inputCommitments[nInputs];
   signal input counterpartyPublicKey[2];
-  // The caller's private key, already formatted for BabyJub
-  // (formatPrivKeyForBabyJub applied on the JS side).
+  // The caller's private key, with formatPrivKeyForBabyJub already applied on
+  // the JS side.
   signal input ecdhKey;
   signal input enabled[nInputs];
 

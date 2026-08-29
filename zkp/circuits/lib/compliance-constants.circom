@@ -19,12 +19,10 @@ pragma circom 2.2.2;
 // leaf, `Poseidon(3)([pubKeyX, pubKeyY, STATUS])`.
 //
 // These are baked in at compile time wherever they are used, so a prover cannot
-// substitute one for the other. Naming them here keeps the compliance tree's
-// leaf encoding, which the off-chain publisher has to match exactly, in a
-// single place rather than at every site that compares a status.
-//
-// The values are part of the off-chain compliance-tree encoding. Changing either
-// invalidates every published compliance root.
+// substitute one for the other. Naming them here keeps the leaf encoding, which
+// the off-chain publisher has to match exactly, in a single place rather than at
+// every site that compares a status. Changing either value invalidates every
+// published compliance root.
 
 function STATUS_ACTIVE() {
     return 1;
