@@ -20,6 +20,7 @@ include "./lib/check-smt-proof.circom";
 include "./lib/check-non-zero.circom";
 include "./lib/check-enabled-inputs.circom";
 include "./lib/check-enforcement-nullifiers.circom";
+include "./lib/check-output-slots.circom";
 include "./lib/check-babyjub-public-key.circom";
 include "./lib/kyc.circom";
 include "./lib/compliance-constants.circom";
@@ -167,34 +168,14 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
   // The proof is private (Merkle paths are private witnesses); only the root is public.
   CheckSMTProof(nInputs, nUTXOSMTLevels)(root <== utxosRoot, merkleProof <== utxosMerkleProof, enabled <== enabledInputs, leafNodeIndexes <== inputCommitments, leafNodeValues <== inputCommitments);
 
-  // Hoist isCommitmentZero — shared by BabyCheck gating, KYC gating, and compliance gating.
-  var isCommitmentZero[nOutputs];
-  for (var i = 0; i < nOutputs; i++) {
-    isCommitmentZero[i] = IsZero()(in <== outputCommitments[i]);
-  }
-
-  // A disabled output slot mints no note, so it must carry no value. Without
-  // this the slot's value still balances the conservation sum while nothing
-  // records where it went — value is destroyed, or on deposit over-charged.
-  for (var i = 0; i < nOutputs; i++) {
-    isCommitmentZero[i] * outputValues[i] === 0;
-  }
+  var enabledOutputs[nOutputs];
+  enabledOutputs = CheckOutputSlots(nOutputs)(outputCommitments <== outputCommitments, outputValues <== outputValues, outputOwnerPublicKeys <== outputOwnerPublicKeys);
 
   // Validate external public keys are on the BabyJubJub curve.
   // Keys derived in-circuit via BabyPbk (enforcerPublicKey) are exempt.
   // seizedOwnerPublicKey enters ECDH as counterparty — must be validated.
-  // A disabled output slot has no key of its own — the raw value may be (0,0),
-  // which is not on the curve — so it is padded with the BabyJubJub generator.
-  // The padding is a genuine prime-order point rather than the identity, so it
-  // passes the same checks a live key does instead of side-stepping them.
   CheckBabyJubPublicKey()(publicKey <== arbiterPublicKey);
   CheckBabyJubPublicKey()(publicKey <== seizedOwnerPublicKey);
-  for (var i = 0; i < nOutputs; i++) {
-    var checkedKey[2];
-    checkedKey[0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0] + isCommitmentZero[i] * BabyJubBase8X();
-    checkedKey[1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1] + isCommitmentZero[i] * BabyJubBase8Y();
-    CheckBabyJubPublicKey()(publicKey <== checkedKey);
-  }
 
   // Check that the seized owner and non-zero output owner public keys are
   // included in the identities Sparse Merkle Tree with the root `identitiesRoot`.
@@ -203,8 +184,8 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
   var kycPublicKeys[nOutputs + 1][2];
   kycPublicKeys[0] = [seizedOwnerPublicKey[0], seizedOwnerPublicKey[1]];
   for (var i = 0; i < nOutputs; i++) {
-    kycPublicKeys[i + 1][0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
-    kycPublicKeys[i + 1][1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1];
+    kycPublicKeys[i + 1][0] = enabledOutputs[i] * outputOwnerPublicKeys[i][0];
+    kycPublicKeys[i + 1][1] = enabledOutputs[i] * outputOwnerPublicKeys[i][1];
   }
   Kyc(nOutputs + 1, nIdentitiesSMTLevels)(publicKeys <== kycPublicKeys, root <== identitiesRoot, merkleProof <== identitiesMerkleProof);
 
@@ -309,16 +290,16 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
   // preimage fields are prover-chosen and correspond to no commitment, so
   // publishing them writes an audit entry that reconciles against nothing.
   for (var i = 0; i < nOutputs; i++) {
-    plainText[idx] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
+    plainText[idx] = enabledOutputs[i] * outputOwnerPublicKeys[i][0];
     idx++;
-    plainText[idx] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1];
+    plainText[idx] = enabledOutputs[i] * outputOwnerPublicKeys[i][1];
     idx++;
   }
   for (var i = 0; i < nOutputs; i++) {
-    // outputValues[i] is already forced to zero for a disabled slot above.
+    // CheckOutputSlots already constrains a disabled slot's value to zero.
     plainText[idx] = outputValues[i];
     idx++;
-    plainText[idx] = (1 - isCommitmentZero[i]) * outputSalts[i];
+    plainText[idx] = enabledOutputs[i] * outputSalts[i];
     idx++;
   }
 

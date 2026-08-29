@@ -20,6 +20,7 @@ include "./lib/check-smt-proof.circom";
 include "./lib/check-non-zero.circom";
 include "./lib/check-enabled-inputs.circom";
 include "./lib/check-enforcement-nullifiers.circom";
+include "./lib/check-output-slots.circom";
 include "./lib/check-babyjub-public-key.circom";
 include "./lib/kyc.circom";
 include "./lib/compliance-constants.circom";
@@ -173,42 +174,26 @@ template WithdrawEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevel
   CheckBabyJubPublicKey()(publicKey <== arbiterPublicKey);
   CheckBabyJubPublicKey()(publicKey <== enforcerPublicKey);
 
+  var enabledOutputs[nOutputs];
+  enabledOutputs = CheckOutputSlots(nOutputs)(outputCommitments <== outputCommitments, outputValues <== outputValues, outputOwnerPublicKeys <== outputOwnerPublicKeys);
+
   // Check that the sender and non-zero change output owners are
   // KYC-registered and have ACTIVE compliance status.
   // Zero-commitment gating: disabled output slots produce zero public keys,
   // which Kyc and ComplianceStatus skip via pubkey-zero gating.
   var ownerPublicKeys[nOutputs + 1][2];
   ownerPublicKeys[0] = [inputOwnerPubKeyAx, inputOwnerPubKeyAy];
-  var isCommitmentZero[nOutputs];
   for (var i = 0; i < nOutputs; i++) {
-    isCommitmentZero[i] = IsZero()(in <== outputCommitments[i]);
-    ownerPublicKeys[i + 1][0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
-    ownerPublicKeys[i + 1][1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1];
-  }
-
-  // A disabled output slot mints no note, so it must carry no value. Without
-  // this the slot's value still balances the conservation sum while nothing
-  // records where it went — value is destroyed, or on deposit over-charged.
-  for (var i = 0; i < nOutputs; i++) {
-    isCommitmentZero[i] * outputValues[i] === 0;
+    ownerPublicKeys[i + 1][0] = enabledOutputs[i] * outputOwnerPublicKeys[i][0];
+    ownerPublicKeys[i + 1][1] = enabledOutputs[i] * outputOwnerPublicKeys[i][1];
   }
 
   // The change output belongs to the sender. This is the premise the missing
   // per-receiver encryption rests on, so it is enforced rather than assumed.
   // A disabled slot has no owner, so the binding applies only to live slots.
   for (var i = 0; i < nOutputs; i++) {
-    (1 - isCommitmentZero[i]) * (outputOwnerPublicKeys[i][0] - inputOwnerPubKeyAx) === 0;
-    (1 - isCommitmentZero[i]) * (outputOwnerPublicKeys[i][1] - inputOwnerPubKeyAy) === 0;
-  }
-
-  // The change output owner reached Kyc and ComplianceStatus without ever being
-  // validated on this path. A disabled slot has no key of its own, so it is
-  // padded with the BabyJubJub generator, exactly as the other three circuits do.
-  for (var i = 0; i < nOutputs; i++) {
-    var checkedKey[2];
-    checkedKey[0] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0] + isCommitmentZero[i] * BabyJubBase8X();
-    checkedKey[1] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1] + isCommitmentZero[i] * BabyJubBase8Y();
-    CheckBabyJubPublicKey()(publicKey <== checkedKey);
+    enabledOutputs[i] * (outputOwnerPublicKeys[i][0] - inputOwnerPubKeyAx) === 0;
+    enabledOutputs[i] * (outputOwnerPublicKeys[i][1] - inputOwnerPubKeyAy) === 0;
   }
 
   Kyc(nOutputs + 1, nIdentitiesSMTLevels)(publicKeys <== ownerPublicKeys, root <== identitiesRoot, merkleProof <== identitiesMerkleProof);
@@ -251,9 +236,9 @@ template WithdrawEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevel
   // preimage fields are prover-chosen and correspond to no commitment, so
   // publishing them writes an audit entry that reconciles against nothing.
   for (var i = 0; i < nOutputs; i++) {
-    plainText[idx] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][0];
+    plainText[idx] = enabledOutputs[i] * outputOwnerPublicKeys[i][0];
     idx++;
-    plainText[idx] = (1 - isCommitmentZero[i]) * outputOwnerPublicKeys[i][1];
+    plainText[idx] = enabledOutputs[i] * outputOwnerPublicKeys[i][1];
     idx++;
   }
   // virtual output owner keys (zero-padded)
@@ -264,10 +249,10 @@ template WithdrawEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevel
     idx++;
   }
   for (var i = 0; i < nOutputs; i++) {
-    // outputValues[i] is already forced to zero for a disabled slot above.
+    // CheckOutputSlots already constrains a disabled slot's value to zero.
     plainText[idx] = outputValues[i];
     idx++;
-    plainText[idx] = (1 - isCommitmentZero[i]) * outputSalts[i];
+    plainText[idx] = enabledOutputs[i] * outputSalts[i];
     idx++;
   }
   // virtual output values/salts (zero-padded)
