@@ -65,12 +65,20 @@ template DepositEnforced(nOutputs, nIdentitiesSMTLevels, nComplianceSMTLevels) {
   //    out1OwnerX, out1OwnerY, out2OwnerX, out2OwnerY,
   //    out1Value, out1Salt, out2Value, out2Salt]
   // For deposit: input fields are zeroed. senderPubX/Y carries ecdhPublicKey, which
-  // is the EPHEMERAL encryption key, not an attributable identity: ecdhPrivateKey is
+  // is the ephemeral encryption key, not an attributable identity: ecdhPrivateKey is
   // chosen freely by the prover and is neither KYC-checked nor bound to any
   // registered key. Depositor attribution comes from msg.sender on-chain, which the
   // enforced token's events already record — do not read this field as the depositor.
-  // nVirtualInputs = 2: zeroed input slots match the 2-in transfer layout so that
-  // arbiter/enforcer use a single decryption schema across all operation types.
+  //
+  // A deposit consumes no input UTXOs, so both input slots in the schema are
+  // virtual and their fields are zeroed. That keeps the arbiter and the enforcer
+  // on a single decryption schema across every operation type.
+  //
+  // The literal is the schema's input width, not a value derived from this
+  // circuit's parameters. Withdraw writes `2 - nOutputs` because it pads the
+  // output half of the same schema against its own nOutputs; the matching
+  // derivation here would be `2 - nInputs` over an nInputs that is always zero
+  // and is read nowhere else.
   var nVirtualInputs = 2;
   var authorityPlaintextLength = 2 + 2 * nVirtualInputs + 2 * nOutputs + 2 * nOutputs;
   signal output encryptedValuesForArbiter[CipherTextLength(authorityPlaintextLength)];
