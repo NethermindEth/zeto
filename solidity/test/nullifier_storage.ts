@@ -45,14 +45,11 @@ describe("NullifierStorage: nullifierSpent getter", function () {
   it("full spend cycle: nullifierSpent is consistent with validateInputs", async function () {
     const nullifier = 42n;
 
-    // before spend
     expect(await storage.nullifierSpent(nullifier)).to.equal(false);
     await expect(storage.validateInputs([nullifier], false)).to.not.be.reverted;
 
-    // spend
     await storage.processInputs([nullifier], false);
 
-    // after spend
     expect(await storage.nullifierSpent(nullifier)).to.equal(true);
     await expect(
       storage.validateInputs([nullifier], false),
