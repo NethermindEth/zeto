@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const { genRandomSalt } = require('maci-crypto');
-const { poseidon4: poseidon, poseidon2 } = require('poseidon-lite');
+const { genRandomSalt, genEcdhSharedKey } = require('maci-crypto');
+const { poseidon4: poseidon, poseidon3, poseidon2 } = require('poseidon-lite');
 const { solidityPackedKeccak256 } = require('ethers');
 const { createHash, randomBytes } = require('crypto');
 const { Base8, mulPointEscalar } = require('@zk-kit/baby-jubjub');
@@ -207,6 +207,31 @@ function kycHash(bjjPublicKey) {
   return hash;
 }
 
+// The domain separator baked into the enforcement-nullifier circuit, and the
+// preimage it is derived from. `zkp/circuits/lib/enforcement-nullifier.circom`
+// pins the same value as a literal because circom cannot compute keccak256;
+// keeping the preimage next to it lets a caller check the two agree.
+const ENFORCEMENT_NULLIFIER_DOMAIN_TAG_PREIMAGE =
+  'zeto.enforcement.nullifier.v1';
+const ENFORCEMENT_NULLIFIER_DOMAIN_TAG = BigInt(
+  '21455947405572920533869930548514094044543253524099188107381343679564123236615',
+);
+
+// Computes the enforcement nullifier for a commitment, as
+// `zkp/circuits/lib/enforcement-nullifier.circom` constrains it. A client must
+// compute this value to spend a note under an enforced token, so it is library
+// surface rather than test scaffolding.
+//
+// `ecdhPrivKey` and `counterpartyPubKey` are the two halves of one Diffie-Hellman
+// pair: the owner spending with the enforcer's public key and the enforcer
+// seizing with the owner's public key derive the same shared secret, and
+// therefore the same nullifier.
+function enforcementNullifier(ecdhPrivKey, counterpartyPubKey, commitment) {
+  const shared = genEcdhSharedKey(ecdhPrivKey, counterpartyPubKey);
+  const k0 = poseidon2([shared[0], shared[1]]);
+  return poseidon3([commitment, k0, ENFORCEMENT_NULLIFIER_DOMAIN_TAG]);
+}
+
 // the bit array is assumed to be in the Little Endian format
 function bitsToBytes(bitArray) {
   const bytes = [];
@@ -275,6 +300,9 @@ module.exports = {
   getProofHash,
   tokenUriHash,
   kycHash,
+  enforcementNullifier,
+  ENFORCEMENT_NULLIFIER_DOMAIN_TAG,
+  ENFORCEMENT_NULLIFIER_DOMAIN_TAG_PREIMAGE,
   bitsToBytes,
   bytesToBits,
   publicKeyFromSeed,
