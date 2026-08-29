@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #
-# Copyright © 2025 Kaleido, Inc.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Circomspect reports "No issues found" for a file in which it analyzed nothing
