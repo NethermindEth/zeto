@@ -12,7 +12,7 @@ import { getLinkedContractFactory, deploy } from "./lib/common";
 export async function deployFungible(tokenName: string) {
   const { erc20 } = await ignition.deploy(erc20Module);
   const verifiersDeployer = require(`./tokens/${tokenName}`);
-  const { deployer, args, libraries } =
+  const { deployer, args, libraries, codec, transferFacet } =
     await verifiersDeployer.deployDependencies();
 
   let zetoFactory;
@@ -34,7 +34,11 @@ export async function deployFungible(tokenName: string) {
   logger.debug(`ERC20 deployed:     ${erc20.target}`);
   logger.debug(`ZetoToken impl deployed: ${zetoImpl.target}`);
 
-  return { deployer, zetoImpl, erc20, args };
+  // Enforced variants split the proof paths into an external codec and a
+  // transfer facet. Both are deployed by the token's dependency script and are
+  // undefined for every other token; the caller sets them on the clone, the way
+  // deploy_upgradeable sets them on the proxy.
+  return { deployer, zetoImpl, erc20, args, codec, transferFacet };
 }
 
 export async function deployNonFungible(tokenName: string) {

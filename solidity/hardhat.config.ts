@@ -19,7 +19,7 @@ import "@nomicfoundation/hardhat-toolbox";
 import "@openzeppelin/hardhat-upgrades";
 import "hardhat-contract-sizer";
 import crypto from "crypto";
-import { EIP170_EXEMPT_CONTRACTS } from "./config/eip170";
+import { EIP170_EXEMPT_PATTERNS } from "./config/eip170";
 
 const keys = [
   process.env.ETH_PRIVATE_KEY_1 || crypto.randomBytes(32).toString("hex"),
@@ -31,8 +31,10 @@ const keys = [
 
 // Add your Sepolia account private key to the configuration variables
 // Beware: NEVER put real Ether into testing accounts
-const SEPOLIA_PRIVATE_KEY_1 = process.env.SEPOLIA_PRIVATE_KEY_1 || crypto.randomBytes(32).toString("hex");
-const SEPOLIA_PRIVATE_KEY_2 = process.env.SEPOLIA_PRIVATE_KEY_2 || crypto.randomBytes(32).toString("hex");
+const SEPOLIA_PRIVATE_KEY_1 =
+  process.env.SEPOLIA_PRIVATE_KEY_1 || crypto.randomBytes(32).toString("hex");
+const SEPOLIA_PRIVATE_KEY_2 =
+  process.env.SEPOLIA_PRIVATE_KEY_2 || crypto.randomBytes(32).toString("hex");
 
 // set your Sepolia JSON RPC URL in the environment variable SEPOLIA_JSON_RPC_URL
 const SEPOLIA_JSON_RPC_URL = process.env.SEPOLIA_JSON_RPC_URL || "";
@@ -49,13 +51,13 @@ const config: HardhatUserConfig = {
     },
   },
   paths: {
-    sources: "contracts"
+    sources: "contracts",
   },
   contractSizer: {
     alphaSort: true,
     runOnCompile: true,
     strict: true,
-    except: [...EIP170_EXEMPT_CONTRACTS],
+    except: [...EIP170_EXEMPT_PATTERNS],
   },
   networks: {
     hardhat: {
@@ -72,8 +74,8 @@ const config: HardhatUserConfig = {
     sepolia: {
       url: `${SEPOLIA_JSON_RPC_URL}`,
       accounts: [SEPOLIA_PRIVATE_KEY_1, SEPOLIA_PRIVATE_KEY_2, ...keys],
-    }
-  }
+    },
+  },
 };
 
 export default config;

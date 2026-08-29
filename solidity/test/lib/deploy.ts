@@ -46,12 +46,12 @@ export async function deployZeto(tokenName: string) {
     ({ deployer, zeto, erc20 } = result as any);
   } else {
     logger.debug('Deploying as cloneable contracts using "ZetoTokenFactory"');
-    let args, zetoImpl;
+    let args, zetoImpl, codec, transferFacet;
     const deployFunc = isFungible
       ? deployFungibleCloneable
       : deployNonFungibleCloneable;
     const result = await deployFunc(tokenName);
-    ({ deployer, zetoImpl, erc20, args } = result as any);
+    ({ deployer, zetoImpl, erc20, args, codec, transferFacet } = result as any);
     let [name, symbol, deployerAddr, verifiers] = args;
 
     // we want to test the effectiveness of the factory contract
@@ -69,7 +69,14 @@ export async function deployZeto(tokenName: string) {
       .registerImplementation(tokenName, implInfo as any);
     await tx1.wait();
     let tx2;
-    if (isFungible) {
+    if (isFungible && transferFacet) {
+      // Enforced variants are non-batch, so they carry no batchVerifier and
+      // deployZetoFungibleToken would reject them. deployZetoEnforcedFungibleToken
+      // requires the deposit, withdraw and forcedTransfer verifiers instead.
+      tx2 = await factory
+        .connect(deployer)
+        .deployZetoEnforcedFungibleToken(name, symbol, tokenName, deployerAddr);
+    } else if (isFungible) {
       tx2 = await factory
         .connect(deployer)
         .deployZetoFungibleToken(name, symbol, tokenName, deployerAddr);
@@ -93,6 +100,17 @@ export async function deployZeto(tokenName: string) {
     if (isFungible) {
       const tx3 = await zeto.connect(deployer).setERC20(erc20.target);
       await tx3.wait();
+    }
+
+    // Enforced variants need their codec and transfer facet bound before any
+    // proof path works, exactly as deploy_upgradeable does for the proxy.
+    if (codec) {
+      await (await zeto.connect(deployer).setCodec(codec)).wait();
+    }
+    if (transferFacet) {
+      await (
+        await zeto.connect(deployer).setTransferFacet(transferFacet)
+      ).wait();
     }
   }
 
