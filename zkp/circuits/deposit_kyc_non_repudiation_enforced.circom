@@ -20,6 +20,7 @@ include "./lib/compliance-constants.circom";
 include "./lib/compliance-status.circom";
 include "./lib/check-non-zero.circom";
 include "./lib/check-babyjub-public-key.circom";
+include "./lib/cipher-text-length.circom";
 include "./lib/encrypt-outputs.circom";
 include "./node_modules/circomlib/circuits/comparators.circom";
 
@@ -59,8 +60,7 @@ template DepositEnforced(nOutputs, nIdentitiesSMTLevels, nComplianceSMTLevels) {
   // the output for the list of encrypted output UTXOs cipher texts
   signal output encryptedValuesForReceiver[nOutputs][4];
 
-  // the number of cipher text messages returned by the encryption template will be 3n+1
-  // authority plaintext (14-element schema for 2-in/2-out layout):
+  // Authority plaintext (14-element schema for 2-in/2-out layout):
   //   [senderPubX, senderPubY, in1Value, in1Salt, in2Value, in2Salt,
   //    out1OwnerX, out1OwnerY, out2OwnerX, out2OwnerY,
   //    out1Value, out1Salt, out2Value, out2Salt]
@@ -73,12 +73,8 @@ template DepositEnforced(nOutputs, nIdentitiesSMTLevels, nComplianceSMTLevels) {
   // arbiter/enforcer use a single decryption schema across all operation types.
   var nVirtualInputs = 2;
   var authorityPlaintextLength = 2 + 2 * nVirtualInputs + 2 * nOutputs + 2 * nOutputs;
-  var l = authorityPlaintextLength;
-  if (l % 3 != 0) {
-    l += (3 - (l % 3));
-  }
-  signal output encryptedValuesForArbiter[l + 1];
-  signal output encryptedValuesForEnforcer[l + 1];
+  signal output encryptedValuesForArbiter[CipherTextLength(authorityPlaintextLength)];
+  signal output encryptedValuesForEnforcer[CipherTextLength(authorityPlaintextLength)];
 
   CheckPositive(nOutputs)(outputValues <== outputValues);
 

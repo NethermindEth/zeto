@@ -24,6 +24,7 @@ include "./lib/check-babyjub-public-key.circom";
 include "./lib/kyc.circom";
 include "./lib/compliance-constants.circom";
 include "./lib/compliance-status.circom";
+include "./lib/cipher-text-length.circom";
 include "./lib/ecdh.circom";
 include "./lib/encrypt.circom";
 include "./node_modules/circomlib/circuits/babyjub.circom";
@@ -98,13 +99,9 @@ template WithdrawEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSMTLevel
   var nVirtualOutputs = 2 - nOutputs;   // = 1 for this circuit (nOutputs=1)
   var authorityPlaintextLength = 2 + 2 * nInputs + 2 * (nOutputs + nVirtualOutputs) + 2 * (nOutputs + nVirtualOutputs);
   // = 2 + 4 + 4 + 4 = 14
-  var l = authorityPlaintextLength;
-  if (l % 3 != 0) {
-    l += (3 - (l % 3));
-  }
   // 14 → padded to 15 (next multiple of 3) → output length = 16
-  signal output encryptedValuesForArbiter[l + 1];
-  signal output encryptedValuesForEnforcer[l + 1];
+  signal output encryptedValuesForArbiter[CipherTextLength(authorityPlaintextLength)];
+  signal output encryptedValuesForEnforcer[CipherTextLength(authorityPlaintextLength)];
 
   // Derive sender's public key from private key (key ownership proof).
   // Single inputOwnerPrivateKey for all inputs → single-sender model.

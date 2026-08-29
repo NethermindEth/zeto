@@ -24,6 +24,7 @@ include "./lib/check-babyjub-public-key.circom";
 include "./lib/kyc.circom";
 include "./lib/compliance-constants.circom";
 include "./lib/compliance-status.circom";
+include "./lib/cipher-text-length.circom";
 include "./lib/encrypt-outputs.circom";
 include "./node_modules/circomlib/circuits/babyjub.circom";
 include "./node_modules/circomlib/circuits/comparators.circom";
@@ -95,21 +96,14 @@ template ForcedTransferEnforced(nInputs, nOutputs, nUTXOSMTLevels, nIdentitiesSM
   // the output for the list of encrypted output UTXOs cipher texts
   signal output encryptedValuesForReceiver[nOutputs][4];
 
-  // Poseidon sponge encryption absorbs plaintext in 3-element blocks, so the
-  // plaintext is zero-padded to n = ceil(length/3) blocks. Each block emits 3
-  // ciphertext elements, plus one final authentication tag → output = 3n + 1.
-  // input length:
+  // Authority plaintext length:
   //   - seized owner public key (x, y): 2
   //   - secrets (value and salt) for each input UTXOs: 2 * nInputs
   //   - output owner public keys (x, y): 2 * nOutputs
   //   - secrets (value and salt) for each output UTXOs: 2 * nOutputs
   var authorityPlaintextLength = 2 + 2 * nInputs + 2 * nOutputs + 2 * nOutputs;
-  var l = authorityPlaintextLength;
-  if (l % 3 != 0) {
-    l += (3 - (l % 3));
-  }
-  signal output encryptedValuesForArbiter[l + 1];
-  signal output encryptedValuesForEnforcer[l + 1];
+  signal output encryptedValuesForArbiter[CipherTextLength(authorityPlaintextLength)];
+  signal output encryptedValuesForEnforcer[CipherTextLength(authorityPlaintextLength)];
 
   // Access-control gate: prove the prover holds the enforcer's private key.
   // BabyPbk derives the public key; the equality constraint binds it to the
