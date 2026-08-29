@@ -163,7 +163,7 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
 
     function _doLockTransition(
         ZetoCreateLockArgs calldata args
-    ) internal override {
+    ) internal virtual override {
         validateTransactionProposal(
             args.inputs,
             args.outputs,
@@ -215,7 +215,7 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
         uint256[] calldata outputs,
         bytes calldata proof,
         bytes calldata /* data */
-    ) internal override {
+    ) internal virtual override {
         validateTransactionProposal(
             lockedInputs,
             outputs,
@@ -259,6 +259,11 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
      * @param proof The proof of the deposit.
      * @param data Additional data to be passed to the deposit function.
      *
+     *      Overrides must keep `nonReentrant` and the checks-effects-
+     *      interactions ordering documented above. A router that forwards
+     *      this call to a facet by DELEGATECALL satisfies both, because the
+     *      guard is evaluated against the router's own storage.
+     *
      * Emits a {UTXOMint} event.
      */
     function deposit(
@@ -266,7 +271,7 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
         uint256[] calldata outputs,
         bytes calldata proof,
         bytes calldata data
-    ) public nonReentrant {
+    ) public virtual nonReentrant {
         // ---- Checks ----
         validateOutputs(outputs);
 
@@ -296,9 +301,22 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
         _mint(outputs, data);
 
         // ---- Interactions ----
-        // SafeERC20 handles non-standard tokens that return no value on
-        // success and reverts cleanly when the underlying call fails or
-        // returns false.
+        _collectDeposit(amount);
+    }
+
+    /**
+     * @dev Moves `amount` of the backing ERC20 from the depositor into this
+     *      contract, as the Interactions step of {deposit}.
+     *
+     *      Overridable so that a token whose commitments must stay backed
+     *      one-for-one can also assert how much value arrived: SafeERC20
+     *      reports that the transfer succeeded, not the amount credited.
+     *      A token that treats its backing asset as trusted, which {setERC20}
+     *      supports by binding the pairing once, keeps the cheaper transfer.
+     *
+     * @param amount The amount of the backing ERC20 to pull from the caller.
+     */
+    function _collectDeposit(uint256 amount) internal virtual {
         ZetoFungibleStorage.layout().erc20Token.safeTransferFrom(
             msg.sender,
             address(this),
@@ -316,6 +334,11 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
      * @param data Additional data to be passed to the withdrawal
      *      function.
      *
+     *      Overrides must keep `nonReentrant` and the checks-effects-
+     *      interactions ordering documented above. A router that forwards
+     *      this call to a facet by DELEGATECALL satisfies both, because the
+     *      guard is evaluated against the router's own storage.
+     *
      * Emits a {UTXOWithdraw} event.
      */
     function withdraw(
@@ -324,7 +347,7 @@ abstract contract ZetoFungible is ZetoLockable, ReentrancyGuardUpgradeable {
         uint256 output,
         bytes calldata proof,
         bytes calldata data
-    ) public nonReentrant {
+    ) public virtual nonReentrant {
         uint256[] memory outputs = new uint256[](1);
         outputs[0] = output;
         uint256[] memory lockedOutputs;

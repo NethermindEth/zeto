@@ -152,6 +152,7 @@ describe("Zeto based fungible token with anonymity using nullifiers without encr
         batchWithdrawVerifier: ZeroAddress,
         batchLockVerifier: ZeroAddress,
         batchBurnVerifier: ZeroAddress,
+        forcedTransferVerifier: ZeroAddress,
       }),
     ).to.be.revertedWithCustomError(impl, "InvalidInitialization");
   });

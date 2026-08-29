@@ -84,6 +84,48 @@ contract ZetoTokenFactoryUpgradeable is
         $.implementations[name] = implementation;
     }
 
+    /// @dev Deploys an enforced fungible token, which needs the transfer,
+    ///   deposit, withdraw, and forced-transfer verifiers. It does not need
+    ///   the batch verifiers, because the enforced circuits are non-batch.
+    function deployZetoEnforcedFungibleToken(
+        string memory name,
+        string memory symbol,
+        string memory tokenImplementation,
+        address initialOwner
+    ) public returns (address) {
+        ZetoTokenFactoryStorage storage $ = _getZetoTokenFactoryStorage();
+        ImplementationInfo memory args = $.implementations[tokenImplementation];
+        require(
+            args.implementation != address(0),
+            "Factory: failed to find implementation"
+        );
+        require(
+            address(args.verifiers.depositVerifier) != address(0),
+            "Factory: depositVerifier address is required"
+        );
+        require(
+            address(args.verifiers.withdrawVerifier) != address(0),
+            "Factory: withdrawVerifier address is required"
+        );
+        require(
+            address(args.verifiers.forcedTransferVerifier) != address(0),
+            "Factory: forcedTransferVerifier address is required"
+        );
+        address instance = Clones.clone(args.implementation);
+        require(
+            instance != address(0),
+            "Factory: failed to clone implementation"
+        );
+        (IZetoInitializable(instance)).initialize(
+            name,
+            symbol,
+            initialOwner,
+            args.verifiers
+        );
+        emit ZetoTokenDeployed(instance);
+        return instance;
+    }
+
     function deployZetoFungibleToken(
         string memory name,
         string memory symbol,

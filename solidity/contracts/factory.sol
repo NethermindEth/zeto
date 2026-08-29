@@ -94,6 +94,45 @@ contract ZetoTokenFactory is Ownable {
         return instance;
     }
 
+    /// @dev Deploys an enforced fungible token, which needs the transfer,
+    ///   deposit, withdraw, and forced-transfer verifiers. It does not need
+    ///   the batch verifiers, because the enforced circuits are non-batch.
+    function deployZetoEnforcedFungibleToken(
+        string calldata name,
+        string calldata symbol,
+        string calldata tokenImplementation,
+        address initialOwner
+    ) public returns (address) {
+        ImplementationInfo memory args = implementations[tokenImplementation];
+        require(
+            args.implementation != address(0),
+            "Factory: failed to find implementation"
+        );
+        require(
+            address(args.verifiers.depositVerifier) != address(0),
+            "Factory: depositVerifier address is required"
+        );
+        require(
+            address(args.verifiers.withdrawVerifier) != address(0),
+            "Factory: withdrawVerifier address is required"
+        );
+        require(
+            address(args.verifiers.forcedTransferVerifier) != address(0),
+            "Factory: forcedTransferVerifier address is required"
+        );
+        address instance = address(
+            new ERC1967Proxy(
+                args.implementation,
+                abi.encodeCall(
+                    IZetoInitializable.initialize,
+                    (name, symbol, initialOwner, args.verifiers)
+                )
+            )
+        );
+        emit ZetoTokenDeployed(instance);
+        return instance;
+    }
+
     function deployZetoNonFungibleToken(
         string calldata name,
         string calldata symbol,

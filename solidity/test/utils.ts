@@ -22,11 +22,10 @@ import { loadCircuit, encodeProof } from "zeto-js";
 import { User, UTXO, ZERO_UTXO, logger } from "./lib/utils";
 
 function provingKeysRoot() {
-  const PROVING_KEYS_ROOT = process.env.PROVING_KEYS_ROOT;
-  if (!PROVING_KEYS_ROOT) {
-    throw new Error("PROVING_KEYS_ROOT env var is not set");
-  }
-  return PROVING_KEYS_ROOT;
+  return (
+    process.env.PROVING_KEYS_ROOT ||
+    path.resolve(__dirname, "..", "..", "zkp", "artifacts")
+  );
 }
 
 export function loadProvingKeys(type: string) {

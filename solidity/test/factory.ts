@@ -49,6 +49,7 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
         batchLockVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
         burnVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
         batchBurnVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     await expect(
@@ -75,6 +76,7 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     await expect(
@@ -101,6 +103,7 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     await expect(
@@ -127,6 +130,7 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     await expect(
@@ -153,6 +157,7 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
@@ -190,6 +195,7 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
@@ -228,6 +234,7 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
@@ -266,6 +273,7 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
         batchLockVerifier: "0x0000000000000000000000000000000000000000",
         burnVerifier: "0x0000000000000000000000000000000000000000",
         batchBurnVerifier: "0x0000000000000000000000000000000000000000",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
@@ -317,6 +325,7 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
         batchLockVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
         burnVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
         batchBurnVerifier: "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1",
+        forcedTransferVerifier: "0x0000000000000000000000000000000000000000",
       },
     };
     const tx1 = await factory
@@ -334,5 +343,137 @@ describe("(factory) Zeto based fungible token with anonymity without encryption 
           await deployer.getAddress(),
         ),
     ).fulfilled;
+  });
+});
+
+describe("(factory) Zeto based enforced fungible token", function () {
+  let deployer: Signer;
+
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  const SET = "0xae92d5aD7583AD66E49A0c67BAd18F6ba52dDDc1";
+
+  // The verifier set an enforced variant needs: transfer, deposit, withdraw
+  // and forcedTransfer, and no batch verifiers, because the enforced circuits
+  // are non-batch. Every batch entry is left at zero on purpose — that is what
+  // distinguishes deployZetoEnforcedFungibleToken from deployZetoFungibleToken,
+  // which rejects the same set.
+  const enforcedVerifiers = (overrides: Record<string, string> = {}) => ({
+    verifier: SET,
+    batchVerifier: ZERO,
+    depositVerifier: SET,
+    withdrawVerifier: SET,
+    batchWithdrawVerifier: ZERO,
+    lockVerifier: ZERO,
+    batchLockVerifier: ZERO,
+    burnVerifier: ZERO,
+    batchBurnVerifier: ZERO,
+    forcedTransferVerifier: SET,
+    ...overrides,
+  });
+
+  before(async function () {
+    if (network.name !== "hardhat") {
+      this.timeout(120000);
+    }
+    [deployer] = await ethers.getSigners();
+  });
+
+  async function registerAndDeploy(
+    verifiers: Record<string, string>,
+    implementation: string = SET,
+  ) {
+    const Factory = await ethers.getContractFactory("ZetoTokenFactory");
+    const factory = await Factory.deploy();
+    await factory.waitForDeployment();
+
+    const tx = await factory
+      .connect(deployer)
+      .registerImplementation("test", { implementation, verifiers } as any);
+    await tx.wait();
+
+    return factory
+      .connect(deployer)
+      .deployZetoEnforcedFungibleToken(
+        "name",
+        "symbol",
+        "test",
+        await deployer.getAddress(),
+      );
+  }
+
+  it("attempting to deploy an enforced fungible token without a registered implementation should fail", async function () {
+    const Factory = await ethers.getContractFactory("ZetoTokenFactory");
+    const factory = await Factory.deploy();
+    await factory.waitForDeployment();
+
+    await expect(
+      factory
+        .connect(deployer)
+        .deployZetoEnforcedFungibleToken(
+          "name",
+          "symbol",
+          "unregistered",
+          await deployer.getAddress(),
+        ),
+    ).rejectedWith("Factory: failed to find implementation");
+  });
+
+  it("attempting to deploy an enforced fungible token that misses required depositVerifier should fail", async function () {
+    await expect(
+      registerAndDeploy(enforcedVerifiers({ depositVerifier: ZERO })),
+    ).rejectedWith("Factory: depositVerifier address is required");
+  });
+
+  it("attempting to deploy an enforced fungible token that misses required withdrawVerifier should fail", async function () {
+    await expect(
+      registerAndDeploy(enforcedVerifiers({ withdrawVerifier: ZERO })),
+    ).rejectedWith("Factory: withdrawVerifier address is required");
+  });
+
+  it("attempting to deploy an enforced fungible token that misses required forcedTransferVerifier should fail", async function () {
+    await expect(
+      registerAndDeploy(enforcedVerifiers({ forcedTransferVerifier: ZERO })),
+    ).rejectedWith("Factory: forcedTransferVerifier address is required");
+  });
+
+  it("attempting to deploy an enforced fungible token without batch verifiers should succeed", async function () {
+    // The same verifier set is rejected by deployZetoFungibleToken, which is
+    // the reason this entry point exists.
+    const ZetoLockableLib = await ethers.getContractFactory("ZetoLockableLib");
+    const zetoLockableLib = await ZetoLockableLib.deploy();
+    await zetoLockableLib.waitForDeployment();
+
+    const Zeto = await getLinkedContractFactory(
+      "Zeto_Anon",
+      withZetoLockableLib(zetoLockableLib),
+    );
+    const zeto = await Zeto.deploy();
+    await zeto.waitForDeployment();
+
+    await expect(registerAndDeploy(enforcedVerifiers(), zeto.target as string))
+      .fulfilled;
+  });
+
+  it("deployZetoFungibleToken rejects the verifier set the enforced entry point accepts", async function () {
+    const Factory = await ethers.getContractFactory("ZetoTokenFactory");
+    const factory = await Factory.deploy();
+    await factory.waitForDeployment();
+
+    const tx = await factory.connect(deployer).registerImplementation("test", {
+      implementation: SET,
+      verifiers: enforcedVerifiers(),
+    } as any);
+    await tx.wait();
+
+    await expect(
+      factory
+        .connect(deployer)
+        .deployZetoFungibleToken(
+          "name",
+          "symbol",
+          "test",
+          await deployer.getAddress(),
+        ),
+    ).rejectedWith("Factory: batchVerifier address is required");
   });
 });

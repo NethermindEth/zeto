@@ -25,8 +25,8 @@ Hardhat tests load circuit WASM via **`zeto-js`** (`file:../zkp/js`). Before run
 2. Ensure **`zeto-js` unit tests pass** in `zkp/js` before relying on Solidity tests here.
 3. Set environment variables so tests can find WASM and keys (same layout as CI):
 
-   - **`CIRCUITS_ROOT`**: directory containing compiled circuit artifacts (e.g. `anon_js/`, `anon_nullifier_transfer_js/`, …).
-   - **`PROVING_KEYS_ROOT`**: directory containing the proving key files referenced by the test harness.
+   - **`CIRCUITS_ROOT`**: directory containing compiled circuit artifacts (e.g. `anon_js/`, `anon_nullifier_transfer_js/`, …). Required: `loadCircuit` in `zeto-js` throws without it.
+   - **`PROVING_KEYS_ROOT`**: directory containing the proving key files referenced by the test harness. Defaults to `<repo>/zkp/artifacts`; set it only to read keys from somewhere else.
 
 Example:
 

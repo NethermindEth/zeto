@@ -136,6 +136,7 @@ describe("Zeto based fungible token with anonymity without encryption or nullifi
         batchWithdrawVerifier: ZeroAddress,
         batchLockVerifier: ZeroAddress,
         batchBurnVerifier: ZeroAddress,
+        forcedTransferVerifier: ZeroAddress,
       }),
     ).to.be.revertedWithCustomError(impl, "InvalidInitialization");
   });
@@ -156,6 +157,7 @@ describe("Zeto based fungible token with anonymity without encryption or nullifi
         batchWithdrawVerifier: ZeroAddress,
         batchLockVerifier: ZeroAddress,
         batchBurnVerifier: ZeroAddress,
+        forcedTransferVerifier: ZeroAddress,
       }),
     ).to.be.revertedWithCustomError(impl, "InvalidInitialization");
   });
