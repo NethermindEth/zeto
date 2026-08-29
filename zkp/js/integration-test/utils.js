@@ -50,8 +50,8 @@ function loadProvingKeys(type) {
 }
 
 // BN254 scalar field modulus. The generated verifiers call it `r` and
-// lib/util.js calls it `F`; it is the scalar field, not the base field, so
-// `BN254_P` — the name the proving tests used — is the one name that is wrong.
+// lib/util.js calls it `F`. It is the scalar field, not the base field, so a
+// `_P` suffix would name the wrong modulus.
 const R =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
