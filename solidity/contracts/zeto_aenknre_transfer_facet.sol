@@ -60,8 +60,6 @@ contract Zeto_AENKNRETransferFacet is
         }
     }
 
-    // ── Codec interaction ──
-    //
     // The codec is an external contract called via STATICCALL. Its return data
     // is decoded with abi.decode against each builder's declared return tuple,
     // so a malformed buffer reverts rather than being read past its bounds, and
@@ -80,8 +78,6 @@ contract Zeto_AENKNRETransferFacet is
         ps.pB = [[w[2], w[3]], [w[4], w[5]]];
         ps.pC = [w[6], w[7]];
     }
-
-    // ── Enforcement nullifiers ──
 
     /// @dev Rejects a tag that is already spent, and a tag repeated within this
     ///   batch. The owner-nullifier and output-commitment domains have always
@@ -119,8 +115,6 @@ contract Zeto_AENKNRETransferFacet is
         }
     }
 
-    // ── Args encoding ──
-    //
     // The codec accepts (bytes proof, bytes args), where args is
     // abi.encode(params...) followed by the 192-byte ProofContext tail. The
     // codec splits the decode at that boundary.
@@ -139,8 +133,6 @@ contract Zeto_AENKNRETransferFacet is
                 s.enforcerPub[1]
             );
     }
-
-    // ── Public input construction overrides ──
 
     function constructPublicInputs(
         uint256[] memory nullifiers,
@@ -228,8 +220,6 @@ contract Zeto_AENKNRETransferFacet is
         delete _s().pendingEnfNullifiers;
     }
 
-    // ── Event emission ──
-
     function emitTransferEvent(
         uint256[] memory nullifiers,
         uint256[] memory outputs,
@@ -246,12 +236,10 @@ contract Zeto_AENKNRETransferFacet is
         );
     }
 
-    // ── Forced transfer ──
-
     /// @dev Seizure, executed under DELEGATECALL from the router. The only
     ///   authority this path checks is `onlyOwner` here plus the circuit's
     ///   `BabyPbk(enforcerPrivateKey) === enforcerPublicKey` against the
-    ///   contract-injected enforcer key — no authorising party, no per-seizure
+    ///   contract-injected enforcer key — no authorizing party, no per-seizure
     ///   nonce, no deadline. Replay is bounded solely by the enforcement
     ///   nullifiers: `_checkEnforcementNullifiersUnspent` rejects one already
     ///   spent (`EnforcementNullifierAlreadySpent`) or repeated within this
@@ -305,7 +293,6 @@ contract Zeto_AENKNRETransferFacet is
         );
     }
 
-    // ── Proof event field readers ──
     // The proof encodings are the ones lib/aenknre_codec.sol decodes; these
     // keep only the fields the events publish.
 
@@ -365,14 +352,12 @@ contract Zeto_AENKNRETransferFacet is
         );
     }
 
-    // ── Deposit collateral ──
-
     /// @dev An AENKNR-E note is backed 1:1 by the ERC-20 held here, and
     ///   `amount` is bound both into the deposit proof and into the value the
     ///   new commitments carry. SafeERC20 reports only that the transfer
     ///   succeeded, not how much arrived, so a backing token that withholds
-    ///   part of it -- a fee-on-transfer asset, or one that credits less than
-    ///   it reports -- would mint commitments the pool cannot redeem. Measure
+    ///   part of it — a fee-on-transfer asset, or one that credits less than
+    ///   it reports — would mint commitments the pool cannot redeem. Measure
     ///   the credited delta and reject anything short.
     function _collectDeposit(uint256 amount) internal override {
         IERC20 erc20 = ZetoFungibleStorage.layout().erc20Token;
@@ -384,16 +369,14 @@ contract Zeto_AENKNRETransferFacet is
         }
     }
 
-    // ── Disabled locking ──
-
     /// @dev AENKNR-E has no locked-transfer circuit, so its lock verifier is
     ///   the zero address and no locked spend could ever be proved. Both
     ///   {ZetoLockable} hooks therefore refuse outright: `createLock` reaches
     ///   {_doLockTransition} and `spendLock` reaches {_transferLocked}, so
     ///   reverting in the pair closes the whole lock lifecycle at its two
-    ///   entry points. Without this the refusal would be incidental -- the
+    ///   entry points. Without this the refusal would be incidental — the
     ///   base hook would build a 7-signal public-input vector and hand it to
-    ///   a verifier expecting 58 -- and an accidental refusal is not a
+    ///   a verifier expecting 58 — and an accidental refusal is not a
     ///   security property.
     function _doLockTransition(
         IZetoLockableCapability.ZetoCreateLockArgs calldata
@@ -412,8 +395,6 @@ contract Zeto_AENKNRETransferFacet is
     ) internal pure override {
         revert LockingNotSupported();
     }
-
-    // ── Disabled initialization ──
 
     /// @dev The facet only ever runs under DELEGATECALL from the router, which
     ///   owns the initialized state, so its own {initialize} has nothing to do.

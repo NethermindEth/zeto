@@ -17,7 +17,8 @@ pragma solidity ^0.8.27;
 
 /// @title IZetoEnforcedEvents — errors and events for enforced Zeto token variants
 /// @dev Separated from IZetoEnforced so contracts that only emit events
-///   (e.g. the TransferFacet) can inherit without implementing admin functions.
+///   (such as the TransferFacet) can inherit without implementing admin
+///   functions.
 interface IZetoEnforcedEvents {
     error EnforcerAlreadySet();
     error EnforcerNotSet();
@@ -35,7 +36,7 @@ interface IZetoEnforcedEvents {
     ///   the proof and the new commitments were built against.
     error InsufficientDepositCredited(uint256 expected, uint256 credited);
     /// @dev Any lock entry point reached on an enforced token. The enforced
-    ///   circuits have no locked-transfer flavour, so no lock can ever be
+    ///   circuits have no locked-transfer flavor, so no lock can ever be
     ///   settled; refusing at creation keeps that explicit rather than
     ///   leaving it to a downstream verifier mismatch.
     error LockingNotSupported();
@@ -84,7 +85,7 @@ interface IZetoEnforced is IZetoEnforcedEvents {
     /// @notice Sets the enforcer BabyJubJub public key. Set-once: rotating it
     ///   would orphan every enforcement nullifier already derived via ECDH with
     ///   this key.
-    /// @dev Set-once also means the enforcer capability is NOT revocable.
+    /// @dev Set-once also means the enforcer capability is not revocable.
     ///   Possession of the matching private key is half of the seizure
     ///   authority described on `forcedTransfer`, and once this key is stored
     ///   the only way to withdraw that capability is a UUPS upgrade.
@@ -96,10 +97,10 @@ interface IZetoEnforced is IZetoEnforcedEvents {
     /// @dev Authority model, as implemented. Executing a seizure requires two
     ///   things and nothing else: the contract owner's account, because this
     ///   function is `onlyOwner`, and the enforcer BabyJubJub private key,
-    ///   because the forced-transfer circuit's only authorisation constraint is
+    ///   because the forced-transfer circuit's only authorization constraint is
     ///   `BabyPbk(enforcerPrivateKey) === enforcerPublicKey` against the key the
     ///   contract injects as a public input. There is no third party: the proof
-    ///   carries no authorisation hash and no signature, the circuit's public
+    ///   carries no authorization hash and no signature, the circuit's public
     ///   inputs contain no per-seizure nonce and no deadline, and replay is
     ///   bounded only by the enforcement nullifiers the call marks spent.
     ///

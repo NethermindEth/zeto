@@ -2196,7 +2196,7 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
       ).wait();
       expect(result!.status).to.equal(1);
 
-      // Zero-input slot's nullifiers should NOT be marked spent
+      // A zero-input slot is a disabled slot, so its nullifiers stay unspent
       expect(await zeto.ownerNullifierSpent(tp.nullifiers![1])).to.be.false;
       expect(await zeto.enforcementNullifierSpent(tp.enfNullifiers[1])).to.be
         .false;

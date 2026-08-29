@@ -18,7 +18,7 @@ pragma solidity ^0.8.27;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 /// @title Test-only ERC-20 that short-credits transfers, or fails without reverting
-/// @dev Models the two non-standard behaviours a deposit must not trust:
+/// @dev Models the two non-standard behaviors a deposit must not trust:
 ///   a fee-on-transfer token, where the recipient receives less than `value`
 ///   while the call still reports success; and a token whose `transferFrom`
 ///   returns `false` rather than reverting.

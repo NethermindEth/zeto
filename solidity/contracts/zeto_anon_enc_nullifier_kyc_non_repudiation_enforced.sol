@@ -59,8 +59,6 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         return AENKNREStorage.layout();
     }
 
-    // ── Initialization ──
-
     function initialize(
         string calldata name,
         string calldata symbol,
@@ -90,7 +88,7 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     ///   call: `_callCodec` STATICCALLs the codec and `_forwardToFacet`
     ///   DELEGATECALLs the facet. Both of those succeed with empty return data
     ///   against an account holding no code, so a codeless target is never
-    ///   reported as an error downstream -- a transfer would return a status-1
+    ///   reported as an error downstream — a transfer would return a status-1
     ///   receipt having done nothing. Checking at the write is enough: since
     ///   EIP-6780 a contract can only lose its code in the transaction that
     ///   created it, so a target with code here keeps it.
@@ -140,8 +138,6 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         _requireContract(facet);
         _s().transferFacet = facet;
     }
-
-    // ── Arbiter and enforcer management ──
 
     /// @dev BabyJubJub is defined over the BN254 scalar field, which is also the
     ///   field the generated Groth16 verifiers accept public signals in.
@@ -225,8 +221,6 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
         return _s().enforcerPub;
     }
 
-    // ── Nullifier read APIs ──
-
     function ownerNullifierSpent(uint256 n) public view returns (bool) {
         return
             IZetoNullifierStorageView(
@@ -241,8 +235,6 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     function isSpent(uint256 ownerN, uint256 enfN) external view returns (bool) {
         return ownerNullifierSpent(ownerN) || _s().enforcementNullifierSpent[enfN];
     }
-
-    // ── DELEGATECALL routing to TransferFacet ──
 
     function transfer(
         uint256[] calldata /* inputs */,
@@ -275,7 +267,7 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     /// @dev Seizure. Single-party in this implementation: the owner account and
     ///   the enforcer BabyJubJub private key are the only two requirements, and
     ///   `setEnforcer` makes the second permanent. There is no independent
-    ///   authorising party, no per-seizure nonce and no deadline. See
+    ///   authorizing party, no per-seizure nonce and no deadline. See
     ///   `IZetoEnforced.forcedTransfer` for the full model.
     function forcedTransfer(
         uint256[] calldata /* outputs */,
@@ -284,8 +276,6 @@ contract Zeto_AnonEncNullifierKycNonRepudiationEnforced is
     ) external {
         _forwardToFacet();
     }
-
-    // ── Locking is not supported ──
 
     /// @dev The router is the deployed contract, so the inherited lock entry
     ///   points ({createLock}, {spendLock}) resolve against this code rather

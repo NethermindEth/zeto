@@ -24,8 +24,6 @@ import {IAENKNRECodec} from "./interfaces/IAENKNRECodec.sol";
 ///   Groth16 proof), decodes the packed args (call parameters + ProofContext),
 ///   and assembles the public-input array matching the circuit's signal ordering.
 contract AENKNRECodec is IAENKNRECodec {
-    // ── Exact circuit arities ──
-    //
     // Every AENKNR-E circuit has a fixed public-signal layout, but the proof
     // payload carries several of its fields as dynamic arrays. Because each
     // build* function fills a fixed-size `pi` sequentially, a caller who makes
@@ -107,8 +105,6 @@ contract AENKNRECodec is IAENKNRECodec {
         uint256[] encE;
     }
 
-    // ── Proof decoders ──
-
     function _proofToWords(
         Commonlib.Proof memory ps
     ) private pure returns (uint256[8] memory w) {
@@ -151,8 +147,6 @@ contract AENKNRECodec is IAENKNRECodec {
             abi.decode(p, (uint256[], uint256, uint256[], uint256, uint256[2], uint256[], uint256[], uint256[], Commonlib.Proof));
     }
 
-    // ── Shared helpers ──
-
     /// @dev Fills ecdhPub + encReceiver + encArbiter + encEnforcer into pi starting at index s.
     function _fillCipher(
         uint256[] memory pi, uint256 s,
@@ -182,7 +176,6 @@ contract AENKNRECodec is IAENKNRECodec {
         ctxOff = args.length - CTX_BYTES;
     }
 
-    // ── Public-input assemblers ──
     // Each function matches one circuit's signal ordering exactly.
     // Signal counts: transfer=58, deposit=52, withdraw=51, forcedTransfer=56.
 
