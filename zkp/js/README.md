@@ -27,13 +27,12 @@ npm i
 
 2. Compile the circuits and generate verification keys and solidity files.
 
-- the generated verification keys and the downloaded PTAU files go to
-  `zkp/artifacts` and `zkp/ptau`, which the generation script creates. To put
-  them somewhere else:
+- set where you want to store the generated verification keys and the downloaded PTAU files
   ```console
   export CIRCUITS_ROOT="$HOME/circuits"
   export PROVING_KEYS_ROOT="$HOME/proving-keys"
   export PTAU_DOWNLOAD_PATH="$HOME/ptaus"
+  mkdir -p $PROVING_KEYS_ROOT $PTAU_DOWNLOAD_PATH $CIRCUITS_ROOT
   ```
 - run the generation script for **ALL** circuits
   ```console
