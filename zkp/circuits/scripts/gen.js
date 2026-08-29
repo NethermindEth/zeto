@@ -40,29 +40,21 @@ const argv = yargs(hideBin(process.argv))
     type: 'string',
   }).argv;
 
-const circuitsRoot = process.env.CIRCUITS_ROOT || argv.circuitsRoot;
-const provingKeysRoot = process.env.PROVING_KEYS_ROOT || argv.provingKeysRoot;
-const ptauDownload = process.env.PTAU_DOWNLOAD_PATH || argv.ptauDownloadPath;
+const defaultArtifacts = path.resolve(__dirname, '..', '..', 'artifacts');
+const circuitsRoot = process.env.CIRCUITS_ROOT || argv.circuitsRoot || defaultArtifacts;
+const provingKeysRoot = process.env.PROVING_KEYS_ROOT || argv.provingKeysRoot || defaultArtifacts;
+const ptauDownload = process.env.PTAU_DOWNLOAD_PATH || argv.ptauDownloadPath || path.resolve(__dirname, '..', '..', 'ptau');
 const specificCircuits = argv.c;
 const verbose = argv.v;
 const compileOnly = argv.compileOnly;
 const parallelLimit = parseInt(process.env.GEN_CONCURRENCY, 10) || 8; // Default to compile 8 circuits in parallel
 
-// check env vars
-if (!circuitsRoot) {
-  console.error('Error: CIRCUITS_ROOT is not set.');
-  process.exit(1);
-}
-
-if (!compileOnly && !provingKeysRoot) {
-  console.error('Error: PROVING_KEYS_ROOT is not set.');
-  process.exit(1);
-}
-
-if (!compileOnly && !ptauDownload) {
-  console.error('Error: PTAU_DOWNLOAD_PATH is not set.');
-  process.exit(1);
-}
+// Ensure output directories exist
+[circuitsRoot, provingKeysRoot, ptauDownload].forEach((dir) => {
+  if (dir && !fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
 
 console.log(
   'Generating circuits with the following settings:\n' +
