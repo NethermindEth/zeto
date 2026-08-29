@@ -30,6 +30,7 @@ ANALYZED=(
   lib/check-enabled-inputs.circom
   lib/check-enforcement-nullifiers.circom
   lib/check-non-zero.circom
+  lib/cipher-text-length.circom
   lib/compliance-constants.circom
   lib/compliance-status.circom
   lib/enforcement-nullifier.circom
