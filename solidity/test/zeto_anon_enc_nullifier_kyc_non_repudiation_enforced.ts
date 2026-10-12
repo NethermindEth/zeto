@@ -1452,6 +1452,279 @@ describe("Zeto AENKNR-E: enforced fungible token with KYC, compliance, non-repud
     });
   });
 
+  // ── lost-key recovery via clawback (ERC-3643 recoveryAddress analogue) ──
+  //
+  // Scenario: Alice lost her spending key. Register a replacement key, freeze
+  // Alice, claw back her notes to the replacement across multiple
+  // forcedTransfer calls (more notes than one proof accepts), then spend from
+  // the new key. See doc-site/docs/advanced/lost-key-recovery.md.
+
+  describe("lost-key recovery via clawback", function () {
+    let Replacement: User;
+    let smtReplacement: Merkletree;
+    let smtCompRecovery: Merkletree;
+    let lostNotes: UTXO[];
+    let recoveredNotes: UTXO[];
+    let allEnfNullifiers: BigInt[];
+
+    it("register replacement key (ACTIVE) and freeze the lost key", async function () {
+      this.timeout(600000);
+      Replacement = await newUser((await ethers.getSigners())[9]);
+      await (
+        await zeto.connect(deployer).register(Replacement.babyJubPublicKey, "0x")
+      ).wait();
+      const h = kycHash(Replacement.babyJubPublicKey);
+      await smtKyc.add(h, h);
+
+      smtReplacement = new Merkletree(
+        new InMemoryDB(str2Bytes("replacement")),
+        true,
+        SMT_HEIGHT_UTXO,
+      );
+
+      // Alice FROZEN; Replacement + Bob + Charlie ACTIVE
+      smtCompRecovery = new Merkletree(
+        new InMemoryDB(str2Bytes("comp-recovery")),
+        true,
+        SMT_HEIGHT_COMPLIANCE,
+      );
+      await addComplianceLeaf(
+        smtCompRecovery,
+        Alice.babyJubPublicKey,
+        STATUS_FROZEN,
+      );
+      for (const user of [Replacement, Bob, Charlie]) {
+        await addComplianceLeaf(
+          smtCompRecovery,
+          user.babyJubPublicKey,
+          STATUS_ACTIVE,
+        );
+      }
+      const recoveryRoot = (
+        await complianceProof(smtCompRecovery, Alice.babyJubPublicKey)
+      ).root;
+      await (
+        await zeto.connect(deployer).setComplianceRoot(recoveryRoot, "0x")
+      ).wait();
+      expect(await zeto.getComplianceRoot()).to.equal(recoveryRoot);
+    });
+
+    it("mint more notes than one forcedTransfer proof can take", async function () {
+      this.timeout(600000);
+      // Circuit arity is 2 inputs; four notes → two full batches (no padding).
+      // mint() also takes at most two commitments, so mint in pairs.
+      lostNotes = [
+        newUTXO(20, Alice),
+        newUTXO(30, Alice),
+        newUTXO(25, Alice),
+        newUTXO(25, Alice),
+      ];
+      await mintAndTrack([lostNotes[0], lostNotes[1]]);
+      await mintAndTrack([lostNotes[2], lostNotes[3]]);
+    });
+
+    it("proofs built with the lost key fail while it is FROZEN", async function () {
+      this.timeout(600000);
+      await expectCircuitReject(() =>
+        proveTransfer(
+          Alice,
+          [lostNotes[0], lostNotes[1]],
+          [newUTXO(20, Bob), newUTXO(30, Alice)],
+          [Bob, Alice],
+          smtAlice,
+          smtKyc,
+          smtCompRecovery,
+          Arbiter,
+          Enforcer,
+          genKeypair(),
+        ),
+      );
+    });
+
+    it("clawback authority forcedTransfers all notes to the replacement across batched calls", async function () {
+      this.timeout(600000);
+      recoveredNotes = [];
+      allEnfNullifiers = [];
+
+      const batches: Array<{ inputs: UTXO[]; outValue: number }> = [
+        { inputs: [lostNotes[0], lostNotes[1]], outValue: 50 },
+        { inputs: [lostNotes[2], lostNotes[3]], outValue: 50 },
+      ];
+
+      for (const batch of batches) {
+        const out = newUTXO(batch.outValue, Replacement);
+        const ephKp = genKeypair();
+        const fp = await proveForcedTransfer(
+          Alice,
+          batch.inputs,
+          [out, ZERO_UTXO],
+          [Replacement, Replacement],
+          smtAlice,
+          smtKyc,
+          smtCompRecovery,
+          Arbiter,
+          Enforcer,
+          ephKp,
+        );
+        allEnfNullifiers.push(...fp.enfNullifiers);
+        await (
+          await zeto
+            .connect(deployer)
+            .forcedTransfer(
+              fp.outputCommitments,
+              encodeForcedTransferProof(
+                fp.enfNullifiers,
+                fp.utxosRoot!,
+                fp.enabledInputs!,
+                fp.encryptionNonce,
+                fp.ecdhPublicKey,
+                fp.encRecv!,
+                fp.encArb!,
+                fp.encEnf,
+                fp.encodedProof,
+              ),
+              "0x",
+            )
+        ).wait();
+        await trackUtxos([smtAlice, smtBob, smtReplacement], out);
+        recoveredNotes.push(out);
+      }
+
+      // Full balance (100) arrived across the two calls
+      expect(
+        recoveredNotes.reduce((s, u) => s + Number(u.value), 0),
+      ).to.equal(100);
+      expect(recoveredNotes.length).to.equal(2);
+      for (const n of allEnfNullifiers) {
+        if (n !== 0n)
+          expect(await zeto.enforcementNullifierSpent(n)).to.be.true;
+      }
+    });
+
+    it("replacement key can spend the recovered notes normally", async function () {
+      this.timeout(600000);
+      const ephKp = genKeypair();
+      const spendOut = [newUTXO(70, Bob), newUTXO(30, Replacement)];
+      const tp = await proveTransfer(
+        Replacement,
+        [recoveredNotes[0], recoveredNotes[1]],
+        spendOut,
+        [Bob, Replacement],
+        smtReplacement,
+        smtKyc,
+        smtCompRecovery,
+        Arbiter,
+        Enforcer,
+        ephKp,
+      );
+      await (
+        await zeto.connect(Replacement.signer).transfer(
+          tp.nullifiers!.filter((n) => n !== 0n),
+          tp.outputCommitments.filter((c) => c !== 0n),
+          encodeTransferProof(
+            tp.utxosRoot!,
+            tp.enfNullifiers,
+            tp.encryptionNonce,
+            tp.ecdhPublicKey,
+            tp.encRecv!,
+            tp.encArb!,
+            tp.encEnf,
+            tp.encodedProof,
+          ),
+          "0x",
+        )
+      ).wait();
+      await trackUtxos([smtAlice, smtBob, smtReplacement], ...spendOut);
+    });
+
+    it("proofs built with the lost key still fail after recovery", async function () {
+      this.timeout(600000);
+      // Restore an ACTIVE compliance root so the circuit would accept Alice
+      // if the notes were still spendable — the enforcement nullifiers block it.
+      const activeRoot = (
+        await complianceProof(smtCompAllActive, Alice.babyJubPublicKey)
+      ).root;
+      await (
+        await zeto.connect(deployer).setComplianceRoot(activeRoot, "0x")
+      ).wait();
+
+      const ephKp = genKeypair();
+      const tp = await proveTransfer(
+        Alice,
+        [lostNotes[0], lostNotes[1]],
+        [newUTXO(30, Bob), newUTXO(30, Alice)],
+        [Bob, Alice],
+        smtAlice,
+        smtKyc,
+        smtCompAllActive,
+        Arbiter,
+        Enforcer,
+        ephKp,
+      );
+      await expect(
+        zeto.connect(Alice.signer).transfer(
+          tp.nullifiers!.filter((n) => n !== 0n),
+          tp.outputCommitments.filter((c) => c !== 0n),
+          encodeTransferProof(
+            tp.utxosRoot!,
+            tp.enfNullifiers,
+            tp.encryptionNonce,
+            tp.ecdhPublicKey,
+            tp.encRecv!,
+            tp.encArb!,
+            tp.encEnf,
+            tp.encodedProof,
+          ),
+          "0x",
+        ),
+      ).to.be.revertedWithCustomError(zeto, "EnforcementNullifierAlreadySpent");
+    });
+
+    it("a recovered note cannot be clawed back a second time", async function () {
+      this.timeout(600000);
+      // Put Alice back to FROZEN so a second seizure proof can be built
+      const recoveryRoot = (
+        await complianceProof(smtCompRecovery, Alice.babyJubPublicKey)
+      ).root;
+      await (
+        await zeto.connect(deployer).setComplianceRoot(recoveryRoot, "0x")
+      ).wait();
+
+      const ephKp = genKeypair();
+      const fp = await proveForcedTransfer(
+        Alice,
+        [lostNotes[0], lostNotes[1]],
+        [newUTXO(60, Bob), ZERO_UTXO],
+        [Bob, Bob],
+        smtAlice,
+        smtKyc,
+        smtCompRecovery,
+        Arbiter,
+        Enforcer,
+        ephKp,
+      );
+      await expect(
+        zeto
+          .connect(deployer)
+          .forcedTransfer(
+            fp.outputCommitments,
+            encodeForcedTransferProof(
+              fp.enfNullifiers,
+              fp.utxosRoot!,
+              fp.enabledInputs!,
+              fp.encryptionNonce,
+              fp.ecdhPublicKey,
+              fp.encRecv!,
+              fp.encArb!,
+              fp.encEnf,
+              fp.encodedProof,
+            ),
+            "0x",
+          ),
+      ).to.be.revertedWithCustomError(zeto, "EnforcementNullifierAlreadySpent");
+    });
+  });
+
   // ── nullifier spend semantics ──
 
   describe("nullifier spend semantics", function () {

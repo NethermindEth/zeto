@@ -119,6 +119,7 @@ nav:
       - ERC20 tokens integration: advanced/erc20-tokens-integration.md
       - Privacy in DeFi Activities: advanced/shield-unshield.md
       - Locks for multi-step trade flows: advanced/locks.md
+      - Lost-key recovery via clawback: advanced/lost-key-recovery.md
   - FAQs: faqs.md
   - Glossary: glossary.md
   - Contributing:
